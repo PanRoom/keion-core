@@ -62,6 +62,7 @@ export default function PracticeTimeResultPage() {
       const { data, error } = await supabase
         .from("practice_session")
         .select("week_id, start_date, result")
+        .order("start_date", { ascending: false, nullsFirst: false })
         .order("week_id", { ascending: false });
 
       if (error) {
@@ -76,8 +77,11 @@ export default function PracticeTimeResultPage() {
       const safeData = data ?? [];
       setSessions(safeData);
 
-      if (safeData[0]) {
-        setSelectedWeekId(safeData[0].week_id);
+      const latestSession =
+        safeData.find((session) => session.start_date !== null) ?? safeData[0];
+
+      if (latestSession) {
+        setSelectedWeekId(latestSession.week_id);
       } else {
         setSchedule(createEmptySchedule());
       }
@@ -141,14 +145,17 @@ export default function PracticeTimeResultPage() {
             disabled={isLoading || sessions.length === 0}
           >
             {sessions.length === 0 && <option value="">データなし</option>}
-            {sessions.map((session) => (
-              <option key={session.week_id} value={session.week_id}>
-                週ID {session.week_id}
-                {session.start_date
-                  ? ` / ${formatStartDate(session.start_date)}`
-                  : ""}
-              </option>
-            ))}
+            {sessions.map((session) => {
+              // 開始日が取得できたときは日付を優先して表示する。
+              const label =
+                formatStartDate(session.start_date) || `週ID ${session.week_id}`;
+
+              return (
+                <option key={session.week_id} value={session.week_id}>
+                  {label}
+                </option>
+              );
+            })}
           </select>
           {errorMessage && (
             <p className="text-sm text-destructive">{errorMessage}</p>
