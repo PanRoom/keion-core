@@ -10,7 +10,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("members")
       .select("*")
-      .order('"member_id(PK)"', { ascending: true });
+      .order("member_id", { ascending: true });
 
     if (error) throw error;
 
@@ -78,19 +78,20 @@ export async function PUT(request: Request) {
     // 更新データの準備
     const updateData: {
       name?: string;
-      "Practice available"?: boolean;
-      board?: boolean;
+      practice_available?: boolean;
+      executive?: boolean;
+      grade?: number;
     } = {};
 
     if (name !== undefined) updateData.name = name;
     if (practice_available !== undefined)
-      updateData["Practice available"] = practice_available;
-    if (board !== undefined) updateData.board = board;
+      updateData.practice_available = practice_available;
+    if (board !== undefined) updateData.executive = board;
 
     const { data, error } = await supabase
       .from("members")
       .update(updateData)
-      .eq('"member_id(PK)"', member_id)
+      .eq("member_id", member_id)
       .select()
       .single();
 
