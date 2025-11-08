@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
 /**
- * GET: 部員の練習希望申請を取得
+ * GET: 部員の練習希望を取得
  * クエリパラメータ:
  *   - member_id: 部員ID
  *   - week_id: 週ID（オプション）
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     }
 
     let query = supabase
-      .from("practice_requests")
+      .from("members_prefer")
       .select("*")
       .eq("member_id", memberId);
 
@@ -39,48 +39,33 @@ export async function GET(request: Request) {
     // TEXT型から配列に変換
     const formattedData = data?.map((item) => ({
       ...item,
-      requested_times: item.requested_times
-        ? JSON.parse(item.requested_times)
-        : null,
       priority: item.priority ? JSON.parse(item.priority) : null,
     }));
 
     return NextResponse.json(formattedData || []);
   } catch (error) {
-    console.error("練習希望申請取得エラー:", error);
+    console.error("練習希望取得エラー:", error);
     return NextResponse.json(
-      { error: "Failed to fetch practice requests" },
+      { error: "Failed to fetch member preferences" },
       { status: 500 }
     );
   }
 }
 
 /**
- * POST: 新しい練習希望申請を作成
+ * POST: 新しい練習希望を作成
  */
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { member_id, week_id, requested_times, priority } = body;
+    const { member_id, week_id, priority } = body;
 
-    console.log("📥 練習希望申請受信:", { member_id, week_id });
+    console.log("📥 練習希望受信:", { member_id, week_id });
 
     // バリデーション
-    if (!member_id || !week_id || !requested_times) {
+    if (!member_id || !week_id) {
       return NextResponse.json(
-        { error: "member_id, week_id, and requested_times are required" },
-        { status: 400 }
-      );
-    }
-
-    // 配列の形式チェック (6x12)
-    if (
-      !Array.isArray(requested_times) ||
-      requested_times.length !== 6 ||
-      !requested_times.every((row) => Array.isArray(row) && row.length === 12)
-    ) {
-      return NextResponse.json(
-        { error: "requested_times must be a 6x12 array" },
+        { error: "member_id and week_id are required" },
         { status: 400 }
       );
     }
@@ -100,17 +85,15 @@ export async function POST(request: Request) {
     }
 
     // JSONを文字列に変換
-    const requestedTimesStr = JSON.stringify(requested_times);
     const priorityStr = priority ? JSON.stringify(priority) : null;
 
     // UPSERT: 既存のレコードがあれば更新、なければ挿入
     const { data, error } = await supabase
-      .from("practice_requests")
+      .from("members_prefer")
       .upsert(
         {
           member_id,
           week_id,
-          requested_times: requestedTimesStr,
           priority: priorityStr,
         },
         {
@@ -122,22 +105,21 @@ export async function POST(request: Request) {
 
     if (error) throw error;
 
-    console.log("✅ 練習希望申請保存成功:", data);
+    console.log("✅ 練習希望保存成功:", data);
 
     // レスポンス用に配列に戻す
     const formattedData = {
       ...data,
-      requested_times: JSON.parse(data.requested_times),
       priority: data.priority ? JSON.parse(data.priority) : null,
     };
 
     return NextResponse.json(formattedData, { status: 201 });
   } catch (error) {
-    console.error("❌ 練習希望申請保存エラー:", error);
+    console.error("❌ 練習希望保存エラー:", error);
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Failed to create request",
+          error instanceof Error ? error.message : "Failed to save preference",
       },
       { status: 500 }
     );
@@ -145,12 +127,12 @@ export async function POST(request: Request) {
 }
 
 /**
- * PUT: 練習希望申請を更新
+ * PUT: 練習希望を更新
  */
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, requested_times, priority } = body;
+    const { id, priority } = body;
 
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
@@ -158,24 +140,8 @@ export async function PUT(request: Request) {
 
     // 更新データの準備
     const updateData: {
-      requested_times?: string;
       priority?: string | null;
     } = {};
-
-    if (requested_times) {
-      // 配列の形式チェック (6x12)
-      if (
-        !Array.isArray(requested_times) ||
-        requested_times.length !== 6 ||
-        !requested_times.every((row) => Array.isArray(row) && row.length === 12)
-      ) {
-        return NextResponse.json(
-          { error: "requested_times must be a 6x12 array" },
-          { status: 400 }
-        );
-      }
-      updateData.requested_times = JSON.stringify(requested_times);
-    }
 
     if (priority !== undefined) {
       if (priority === null) {
@@ -197,7 +163,7 @@ export async function PUT(request: Request) {
     }
 
     const { data, error } = await supabase
-      .from("practice_requests")
+      .from("members_prefer")
       .update(updateData)
       .eq("id", id)
       .select()
@@ -208,22 +174,21 @@ export async function PUT(request: Request) {
     // レスポンス用に配列に戻す
     const formattedData = {
       ...data,
-      requested_times: JSON.parse(data.requested_times),
       priority: data.priority ? JSON.parse(data.priority) : null,
     };
 
     return NextResponse.json(formattedData);
   } catch (error) {
-    console.error("練習希望申請更新エラー:", error);
+    console.error("練習希望更新エラー:", error);
     return NextResponse.json(
-      { error: "Failed to update request" },
+      { error: "Failed to update preference" },
       { status: 500 }
     );
   }
 }
 
 /**
- * DELETE: 練習希望申請を削除
+ * DELETE: 練習希望を削除
  */
 export async function DELETE(request: Request) {
   try {
@@ -235,7 +200,7 @@ export async function DELETE(request: Request) {
     }
 
     const { error } = await supabase
-      .from("practice_requests")
+      .from("members_prefer")
       .delete()
       .eq("id", id);
 
@@ -243,9 +208,9 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("練習希望申請削除エラー:", error);
+    console.error("練習希望削除エラー:", error);
     return NextResponse.json(
-      { error: "Failed to delete request" },
+      { error: "Failed to delete preference" },
       { status: 500 }
     );
   }
