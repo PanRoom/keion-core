@@ -66,10 +66,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   const logout = async () => {
-    await signOut();
-    setUser(null);
-    setMember(null);
-    router.push("/login");
+    try {
+      console.log("ログアウト処理開始");
+      await signOut();
+      setUser(null);
+      setMember(null);
+      router.push("/login");
+      console.log("ログアウト完了");
+    } catch (error) {
+      console.error("ログアウトエラー:", error);
+      alert("ログアウトに失敗しました");
+    }
   };
 
   return (

@@ -25,37 +25,60 @@ export default function AdminDashboard() {
           </Button>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {/* 練習スケジュール設定 */}
-          <div
-            className="p-6 bg-card border rounded-lg cursor-pointer hover:bg-accent transition-colors"
-            onClick={() => router.push("/practice-schedule-admin")}
-          >
-            <h2 className="text-xl font-semibold mb-2">練習スケジュール設定</h2>
-            <p className="text-muted-foreground text-sm">
-              練習可能な日時を設定します
-            </p>
-          </div>
+        {/* 役員機能セクション */}
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold mb-4">役員機能</h2>
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {/* 練習スケジュール設定 */}
+            <div
+              className="p-6 bg-card border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+              onClick={() => router.push("/practice-schedule-admin")}
+            >
+              <h3 className="text-xl font-semibold mb-2">
+                練習スケジュール設定
+              </h3>
+              <p className="text-muted-foreground text-sm">
+                練習可能な日時を設定します
+              </p>
+            </div>
 
-          {/* 部員管理 */}
-          <div
-            className="p-6 bg-card border rounded-lg cursor-pointer hover:bg-accent transition-colors"
-            onClick={() => router.push("/admin/members/new")}
-          >
-            <h2 className="text-xl font-semibold mb-2">部員追加</h2>
-            <p className="text-muted-foreground text-sm">
-              新しい部員を登録します
-            </p>
-          </div>
+            {/* 部員管理 */}
+            <div
+              className="p-6 bg-card border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+              onClick={() => router.push("/admin/members/new")}
+            >
+              <h3 className="text-xl font-semibold mb-2">部員追加</h3>
+              <p className="text-muted-foreground text-sm">
+                新しい部員を登録します
+              </p>
+            </div>
 
-          {/* その他の機能 */}
-          <div className="p-6 bg-card border rounded-lg opacity-50">
-            <h2 className="text-xl font-semibold mb-2">
-              練習結果確認 (準備中)
-            </h2>
-            <p className="text-muted-foreground text-sm">
-              確定した練習時間を確認します
-            </p>
+            {/* その他の機能 */}
+            <div className="p-6 bg-card border rounded-lg opacity-50">
+              <h3 className="text-xl font-semibold mb-2">
+                練習結果確認 (準備中)
+              </h3>
+              <p className="text-muted-foreground text-sm">
+                確定した練習時間を確認します
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* 部員機能セクション */}
+        <div>
+          <h2 className="text-2xl font-bold mb-4">部員機能</h2>
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {/* 練習希望提出 */}
+            <div
+              className="p-6 bg-card border-2 border-blue-500 rounded-lg cursor-pointer hover:bg-accent transition-colors"
+              onClick={() => router.push("/member/practice-request")}
+            >
+              <h3 className="text-xl font-semibold mb-2">練習希望提出</h3>
+              <p className="text-muted-foreground text-sm">
+                練習可能な時間を提出します
+              </p>
+            </div>
           </div>
         </div>
       </div>
