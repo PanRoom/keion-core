@@ -6,12 +6,13 @@ import { getCurrentUser, onAuthStateChange, signOut } from "@/lib/auth";
 import type { User } from "@supabase/supabase-js";
 
 type Member = {
-  "member_id(PK)": number;
+  member_id: number;
   name: string;
   email: string;
-  board: boolean;
-  "Practice available": boolean;
+  executive: boolean;
+  practice_available: boolean;
   user_id: string;
+  grade?: number;
 };
 
 type AuthContextType = {

@@ -114,8 +114,9 @@ export async function createUser(
         user_id: authData.user.id,
         name,
         email,
-        board,
-        "Practice available": true, // デフォルトで練習参加可能
+        executive: board,
+        practice_available: true, // デフォルトで練習参加可能
+        grade: 1, // デフォルトで1年生
       })
       .select()
       .single();

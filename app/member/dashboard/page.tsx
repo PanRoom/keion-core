@@ -29,7 +29,7 @@ export default function MemberDashboard() {
           {/* 練習希望提出 */}
           <div
             className="p-6 bg-card border rounded-lg cursor-pointer hover:bg-accent transition-colors"
-            onClick={() => router.push("/time-select/practice")}
+            onClick={() => router.push("/member/practice-request")}
           >
             <h2 className="text-xl font-semibold mb-2">練習希望提出</h2>
             <p className="text-muted-foreground text-sm">

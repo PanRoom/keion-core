@@ -6,12 +6,13 @@ import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 
 type Member = {
-  "member_id(PK)": number;
+  member_id: number;
   name: string;
   email: string;
-  board: boolean;
-  "Practice available": boolean;
+  executive: boolean;
+  practice_available: boolean;
   user_id: string;
+  grade?: number;
 };
 
 export default function AdminMembersPage() {
@@ -110,10 +111,8 @@ export default function AdminMembersPage() {
                   </tr>
                 ) : (
                   members.map((m) => (
-                    <tr key={m["member_id(PK)"]} className="hover:bg-muted/50">
-                      <td className="px-6 py-4 text-sm">
-                        {m["member_id(PK)"]}
-                      </td>
+                    <tr key={m.member_id} className="hover:bg-muted/50">
+                      <td className="px-6 py-4 text-sm">{m.member_id}</td>
                       <td className="px-6 py-4 text-sm font-medium">
                         {m.name}
                       </td>
@@ -121,7 +120,7 @@ export default function AdminMembersPage() {
                         {m.email}
                       </td>
                       <td className="px-6 py-4 text-sm">
-                        {m.board ? (
+                        {m.executive ? (
                           <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
                             役員
                           </span>
@@ -132,7 +131,7 @@ export default function AdminMembersPage() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm">
-                        {m["Practice available"] ? (
+                        {m.practice_available ? (
                           <span className="text-green-600">✓ 可能</span>
                         ) : (
                           <span className="text-red-600">✗ 不可</span>

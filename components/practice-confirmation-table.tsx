@@ -43,17 +43,27 @@ const PRIORITY_LEVELS = [
 interface PracticeConfirmationTableProps {
   // time-select で選択された時間の matrix (6日 x 12時間)
   selectedMatrix: number[][];
+  // 保存処理のコールバック（オプション）
+  onSubmit?: (priorityMatrix: number[][]) => void | Promise<void>;
+  // 保存中フラグ（オプション）
+  isSubmitting?: boolean;
+  // 初期の優先順位マトリクス（オプション）
+  initialPriorityMatrix?: number[][];
 }
 
 export function PracticeConfirmationTable({
   selectedMatrix,
+  onSubmit,
+  isSubmitting = false,
+  initialPriorityMatrix,
 }: PracticeConfirmationTableProps) {
   // 優先順位を管理する state (6日 x 12時間)
   // 0: 未選択, 1-4: 優先順位レベル
   const [priorityMatrix, setPriorityMatrix] = useState<number[][]>(
-    Array(DAYS.length)
-      .fill(0)
-      .map(() => Array(TIME_SLOTS.length).fill(0))
+    initialPriorityMatrix ||
+      Array(DAYS.length)
+        .fill(0)
+        .map(() => Array(TIME_SLOTS.length).fill(0))
   );
 
   // 現在選択中の優先順位レベル (デフォルト: 4 = 第4優先)
@@ -130,7 +140,10 @@ export function PracticeConfirmationTable({
     console.log("練習どり優先順位（2次元配列）:");
     console.log(JSON.stringify(finalMatrix, null, 2));
 
-    // ここでAPIへの送信処理などを行う
+    // 外部から渡された onSubmit コールバックを実行
+    if (onSubmit) {
+      onSubmit(finalMatrix);
+    }
   };
 
   return (
@@ -254,7 +267,9 @@ export function PracticeConfirmationTable({
       </div>
 
       <div className="mt-4 text-right">
-        <Button onClick={handleSubmit}>決定</Button>
+        <Button onClick={handleSubmit} disabled={isSubmitting}>
+          {isSubmitting ? "保存中..." : onSubmit ? "練習希望を保存" : "決定"}
+        </Button>
       </div>
     </div>
   );
