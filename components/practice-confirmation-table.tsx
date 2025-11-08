@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Table,
   TableHeader,
@@ -49,6 +49,8 @@ interface PracticeConfirmationTableProps {
   isSubmitting?: boolean;
   // 初期の優先順位マトリクス（オプション）
   initialPriorityMatrix?: number[][];
+  // 保存ボタンのテキスト（オプション）
+  submitButtonText?: string;
 }
 
 export function PracticeConfirmationTable({
@@ -56,11 +58,13 @@ export function PracticeConfirmationTable({
   onSubmit,
   isSubmitting = false,
   initialPriorityMatrix,
+  submitButtonText,
 }: PracticeConfirmationTableProps) {
   // 優先順位を管理する state (6日 x 12時間)
   // 0: 未選択, 1-4: 優先順位レベル
   const [priorityMatrix, setPriorityMatrix] = useState<number[][]>(
-    initialPriorityMatrix ||
+    () =>
+      initialPriorityMatrix ||
       Array(DAYS.length)
         .fill(0)
         .map(() => Array(TIME_SLOTS.length).fill(0))
@@ -68,6 +72,20 @@ export function PracticeConfirmationTable({
 
   // 現在選択中の優先順位レベル (デフォルト: 4 = 第4優先)
   const [selectedPriorityLevel, setSelectedPriorityLevel] = useState<number>(4);
+
+  // initialPriorityMatrix が変更されたら priorityMatrix を更新
+  useEffect(() => {
+    if (initialPriorityMatrix) {
+      // JSON文字列化して比較（深い比較）
+      const currentStr = JSON.stringify(priorityMatrix);
+      const initialStr = JSON.stringify(initialPriorityMatrix);
+      if (currentStr !== initialStr) {
+        setPriorityMatrix(initialPriorityMatrix);
+      }
+    }
+    // priorityMatrixは意図的に依存配列から除外
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPriorityMatrix]);
 
   // 個別の優先順位設定・トグル
   const handlePriorityToggle = (dayIndex: number, timeIndex: number) => {
@@ -268,7 +286,9 @@ export function PracticeConfirmationTable({
 
       <div className="mt-4 text-right">
         <Button onClick={handleSubmit} disabled={isSubmitting}>
-          {isSubmitting ? "保存中..." : onSubmit ? "練習希望を保存" : "決定"}
+          {isSubmitting
+            ? "保存中..."
+            : submitButtonText || (onSubmit ? "練習希望を保存" : "決定")}
         </Button>
       </div>
     </div>

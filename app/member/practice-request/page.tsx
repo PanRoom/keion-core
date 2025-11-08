@@ -27,8 +27,8 @@ export default function MemberPracticeRequestPage() {
     id: number;
     member_id: number;
     week_id: number;
-    requested_times: number[][];
     priority: number[][] | null;
+    updated_at?: string;
   } | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
@@ -88,9 +88,6 @@ export default function MemberPracticeRequestPage() {
             setExistingRequest(request);
 
             // 既存のデータを復元
-            if (request.requested_times) {
-              setSelectedMatrix(request.requested_times);
-            }
             if (request.priority) {
               setPriorityMatrix(request.priority);
             }
@@ -126,7 +123,6 @@ export default function MemberPracticeRequestPage() {
         body: JSON.stringify({
           member_id: member.member_id,
           week_id: currentWeek.week_id,
-          requested_times: selectedMatrix,
           priority: priority,
         }),
       });
@@ -208,17 +204,59 @@ export default function MemberPracticeRequestPage() {
 
           {/* 練習週情報 */}
           {currentWeek && (
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm font-medium text-blue-900">
-                📅 対象週:{" "}
-                {new Date(currentWeek.start_date).toLocaleDateString("ja-JP")}{" "}
-                の週
-              </p>
-              {existingRequest && (
-                <p className="text-xs text-blue-700 mt-1">
-                  ✏️ 既存の申請があります。編集して再保存できます。
-                </p>
-              )}
+            <div
+              className={`p-4 rounded-lg border ${
+                existingRequest
+                  ? "bg-amber-50 border-amber-300"
+                  : "bg-blue-50 border-blue-200"
+              }`}
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <p
+                    className={`text-sm font-medium ${
+                      existingRequest ? "text-amber-900" : "text-blue-900"
+                    }`}
+                  >
+                    📅 対象週:{" "}
+                    {new Date(currentWeek.start_date).toLocaleDateString(
+                      "ja-JP"
+                    )}{" "}
+                    の週
+                  </p>
+                  {existingRequest && (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-sm font-semibold text-amber-900 flex items-center gap-2">
+                        <span className="inline-block w-2 h-2 bg-amber-500 rounded-full"></span>
+                        申請済み（編集モード）
+                      </p>
+                      {existingRequest.updated_at && (
+                        <p className="text-xs text-amber-700">
+                          最終更新:{" "}
+                          {new Date(existingRequest.updated_at).toLocaleString(
+                            "ja-JP",
+                            {
+                              year: "numeric",
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }
+                          )}
+                        </p>
+                      )}
+                      <p className="text-xs text-amber-700">
+                        💡 内容を変更して再保存できます
+                      </p>
+                    </div>
+                  )}
+                  {!existingRequest && (
+                    <p className="text-xs text-blue-700 mt-1">
+                      ℹ️ 新規申請を作成します
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -263,6 +301,9 @@ export default function MemberPracticeRequestPage() {
           onSubmit={handleSubmit}
           isSubmitting={isSaving}
           initialPriorityMatrix={priorityMatrix}
+          submitButtonText={
+            existingRequest ? "練習希望を更新" : "練習希望を保存"
+          }
         />
       </div>
     </div>
