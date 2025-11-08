@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+
 import { createClient } from "@supabase/supabase-js";
 
 
@@ -11,6 +12,7 @@ const DAYS = 6; // スケジュールは 6 日分で固定
 const HOURS = 12; // 1 日あたり 12 コマで固定
 const LOCATIONS = ["310", "107"] as const;
 const LOCATION_COUNT = LOCATIONS.length as number;
+
 
 // Supabase クライアントの初期化
 const NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -28,6 +30,7 @@ const supabase = createClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANO
 function zeroMatrix(): NumberMatrix {
   return Array.from({ length: DAYS }, () => Array(HOURS).fill(0));
 }
+
 
 function addMatrixInto(target: NumberMatrix, source: NumberMatrix): void {
   for (let dayIndex = 0; dayIndex < DAYS; dayIndex += 1) {
@@ -54,6 +57,7 @@ function hasAnyPositive(m: NumberMatrix): boolean {
   return m.some((row) => row.some((v) => v > 0));
 }
 type RawBandPreferEntry = [string, unknown];
+
 
 type BandRow = { band_id: number; band_name: string };
 type BandMemberRow = { band_id: number; member_id: number };
@@ -83,6 +87,7 @@ function parsePriorityMatrix(
   return hasAnyPositive(matrix) ? matrix : null;
 }
 
+
 // 入力されたスコア配列を安全に正規化する。
 // API から受け取る `[バンド名, 希望スコア行列]` の配列を検証＋正規化する。
 function normalizeBandPreferEntries(
@@ -106,6 +111,7 @@ function normalizeBandPreferEntries(
 
   return sanitized;
 }
+
 
 async function fetchBandPreferSource(
   weekId: number | null
@@ -309,6 +315,7 @@ async function fetchBandPreferSource(
   console.log("[fetchBandPreferSource] Final result count:", result.length);
 
   return result;
+
 }
 
 // 擬似的に practice_session テーブルへ保存した体裁の配列。
@@ -347,7 +354,7 @@ function assignPracticeSlots(scores: [string, NumberMatrix][]): NicePreferMatrix
   const candidates: Candidate[] = [];
 
   for (const [bandName, scoreMatrix] of scores) {
-   
+
     for (let dayIndex = 0; dayIndex < DAYS; dayIndex += 1) {
       for (let hourIndex = 0; hourIndex < HOURS; hourIndex += 1) {
         const baseScore = scoreMatrix[dayIndex][hourIndex];
@@ -396,9 +403,11 @@ export async function GET(request: Request) {
     const weekId = weekIdParam ? Number(weekIdParam) : null;
 
     // 1. 生データを取得し、
+
     const rawBandPrefer = await fetchBandPreferSource(weekId);
     // 2. 正規化してからスコアリングルールに通す。
     const bandsPreferScore = buildBandPreferScores(rawBandPrefer);
+
     const nicePrefer = assignPracticeSlots(bandsPreferScore);
 
     if (weekId !== null && !Number.isNaN(weekId)) {
@@ -415,6 +424,8 @@ export async function GET(request: Request) {
           nice_prefer: JSON.parse(JSON.stringify(nicePrefer)),
         });
       }
+
+
     }
 
     console.log("[bands_prefer_score]", JSON.stringify(bandsPreferScore));
@@ -424,13 +435,16 @@ export async function GET(request: Request) {
       bands_prefer_score: bandsPreferScore,
       nice_prefer: nicePrefer,
     });
+
    } catch (error) {
+
     console.error("bands_prefer_score 生成エラー:", error);
     return NextResponse.json(
       { error: "Failed to build bands_prefer_score" },
       { status: 500 }
     );
   }
+
 }
 
 function countAssignedBands(matrix: NicePreferMatrix): number {
@@ -467,4 +481,5 @@ function logBandSlotCounts(matrix: NicePreferMatrix): void {
     "[nice_prefer slot counts]",
     JSON.stringify(Object.fromEntries(occurrences), null, 2)
   );
+
 }
