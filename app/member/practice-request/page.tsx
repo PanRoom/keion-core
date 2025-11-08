@@ -134,12 +134,15 @@ export default function MemberPracticeRequestPage() {
       if (response.ok) {
         setSaveMessage({
           type: "success",
-          text: "練習希望を保存しました！",
+          text: "練習希望を保存しました!",
         });
 
-        // 3秒後にダッシュボードに戻る
+        // 3秒後にダッシュボードに戻る（役員と部員で分岐）
         setTimeout(() => {
-          router.push("/member/dashboard");
+          const redirectPath = member.executive
+            ? "/admin/dashboard"
+            : "/member/dashboard";
+          router.push(redirectPath);
         }, 3000);
       } else {
         const errorData = await response.json();
@@ -192,7 +195,12 @@ export default function MemberPracticeRequestPage() {
             </div>
             <Button
               variant="outline"
-              onClick={() => router.push("/member/dashboard")}
+              onClick={() => {
+                const redirectPath = member.executive
+                  ? "/admin/dashboard"
+                  : "/member/dashboard";
+                router.push(redirectPath);
+              }}
             >
               ダッシュボードに戻る
             </Button>
