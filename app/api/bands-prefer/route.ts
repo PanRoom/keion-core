@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { createClient } from "@supabase/supabase-js";
+
+
 // バンド希望スコアの二次元配列を扱うユーティリティ群。
 type NumberMatrix = number[][];
 type NicePreferEntry = string | 0;
@@ -10,9 +13,31 @@ const HOURS = 12; // 1 日あたり 12 コマで固定
 const LOCATIONS = ["310", "107"] as const;
 const LOCATION_COUNT = LOCATIONS.length as number;
 
+
+// Supabase クライアントの初期化
+const NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!NEXT_PUBLIC_SUPABASE_URL || !NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  console.error("NEXT_PUBLIC_SUPABASE_URL:", NEXT_PUBLIC_SUPABASE_URL);
+  console.error("NEXT_PUBLIC_SUPABASE_ANON_KEY:", NEXT_PUBLIC_SUPABASE_ANON_KEY ? "exists" : "missing");
+  throw new Error("Missing Supabase connection settings");
+}
+
+const supabase = createClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY);
+
 // 0 で初期化されたスコア行列を生成する。
 function zeroMatrix(): NumberMatrix {
   return Array.from({ length: DAYS }, () => Array(HOURS).fill(0));
+}
+
+
+function addMatrixInto(target: NumberMatrix, source: NumberMatrix): void {
+  for (let dayIndex = 0; dayIndex < DAYS; dayIndex += 1) {
+    for (let hourIndex = 0; hourIndex < HOURS; hourIndex += 1) {
+      target[dayIndex][hourIndex] += source[dayIndex][hourIndex];
+    }
+  }
 }
 
 // 任意型の入力を安全に NumberMatrix 化する。
@@ -32,6 +57,36 @@ function hasAnyPositive(m: NumberMatrix): boolean {
   return m.some((row) => row.some((v) => v > 0));
 }
 type RawBandPreferEntry = [string, unknown];
+
+
+type BandRow = { band_id: number; band_name: string };
+type BandMemberRow = { band_id: number; member_id: number };
+type MemberRow = { member_id: number; practice_available: boolean | null };
+type MemberPreferRow = {
+  member_id: number;
+  priority: string | NumberMatrix | null;
+  updated_at: string | null;
+};
+
+function parsePriorityMatrix(
+  priority: string | NumberMatrix | null
+): NumberMatrix | null {
+  if (priority === null) return null;
+
+  let raw: unknown = priority;
+  if (typeof priority === "string") {
+    try {
+      raw = JSON.parse(priority);
+    } catch (error) {
+      console.warn("[members_prefer priority parse error]", error);
+      return null;
+    }
+  }
+
+  const matrix = normalizeMatrix(raw);
+  return hasAnyPositive(matrix) ? matrix : null;
+}
+
 
 // 入力されたスコア配列を安全に正規化する。
 // API から受け取る `[バンド名, 希望スコア行列]` の配列を検証＋正規化する。
@@ -57,76 +112,210 @@ function normalizeBandPreferEntries(
   return sanitized;
 }
 
-// TODO: DB 連携までの間は下記ダミーデータを返却して動作させる。
-const dummyBandsPreferSource: RawBandPreferEntry[] = [
-  ['刹那のカラス', [[2, 10, 0, 4, 0, 9, 0, 10, 7, 2, 8, 8], [4, 3, 3, 5, 6, 9, 3, 10, 6, 8, 2, 2], [1, 7, 3, 7, 3, 7, 7, 7, 6, 2, 5, 9], [10, 5, 9, 3, 9, 0, 4, 8, 0, 3, 10, 6], [6, 10, 5, 0, 2, 10, 9, 10, 3, 0, 9, 10], [2, 6, 2, 5, 8, 6, 1, 1, 3, 7, 6, 4]]],
-  ['沈黙のシンセ', [[2, 6, 10, 1, 9, 3, 1, 3, 10, 8, 6, 1], [4, 6, 7, 5, 0, 1, 1, 7, 4, 6, 4, 0], [6, 6, 7, 7, 0, 6, 0, 10, 0, 1, 9, 0], [1, 6, 5, 8, 4, 10, 10, 8, 5, 5, 9, 3], [6, 5, 7, 8, 7, 3, 5, 6, 9, 3, 0, 3], [2, 9, 5, 4, 2, 3, 10, 5, 8, 2, 8, 0]]],
-  ['青い衛星', [[3, 7, 9, 0, 3, 7, 4, 8, 2, 0, 4, 7], [1, 10, 1, 10, 3, 0, 1, 5, 7, 5, 8, 2], [0, 1, 7, 10, 1, 4, 1, 9, 2, 10, 7, 8], [0, 8, 9, 8, 2, 4, 6, 4, 1, 5, 6, 6], [4, 3, 1, 9, 6, 7, 9, 0, 5, 5, 8, 3], [8, 0, 2, 2, 2, 1, 3, 3, 6, 2, 6, 2]]],
-  ['朝の未来', [[9, 3, 10, 1, 5, 4, 10, 5, 4, 5, 7, 5], [10, 8, 2, 2, 7, 9, 3, 9, 2, 6, 4, 7], [0, 7, 4, 6, 10, 7, 1, 8, 7, 5, 3, 9], [1, 6, 5, 2, 0, 7, 3, 9, 2, 9, 5, 5], [7, 5, 2, 7, 4, 10, 8, 3, 8, 6, 5, 5], [4, 9, 9, 3, 6, 2, 1, 5, 9, 5, 5, 4]]],
-  ['嵐の砂漠', [[3, 9, 10, 2, 8, 9, 0, 7, 5, 5, 7, 3], [8, 0, 8, 6, 9, 8, 1, 5, 2, 5, 10, 5], [0, 7, 5, 1, 3, 9, 6, 4, 9, 1, 3, 6], [4, 4, 4, 1, 0, 3, 0, 3, 5, 3, 6, 9], [0, 1, 4, 3, 5, 3, 9, 8, 4, 2, 1, 3], [0, 10, 0, 2, 0, 7, 7, 4, 4, 2, 2, 10]]],
-  ['雪の影', [[2, 0, 0, 2, 9, 3, 0, 10, 10, 5, 0, 0], [9, 2, 10, 1, 2, 4, 0, 6, 9, 2, 10, 5], [9, 7, 1, 3, 5, 5, 10, 1, 9, 9, 7, 2], [4, 9, 7, 10, 5, 1, 9, 8, 9, 1, 7, 10], [1, 5, 5, 7, 10, 6, 0, 5, 10, 6, 2, 1], [5, 1, 9, 0, 4, 0, 8, 0, 6, 2, 8, 9]]],
-  ['霧の彗星', [[4, 1, 9, 10, 5, 3, 1, 10, 2, 1, 8, 6], [0, 10, 6, 3, 8, 10, 6, 6, 5, 10, 6, 9], [6, 10, 8, 6, 1, 5, 2, 9, 7, 4, 3, 0], [3, 10, 4, 9, 9, 5, 9, 5, 2, 10, 10, 2], [1, 3, 6, 10, 2, 10, 0, 1, 3, 3, 3, 10], [6, 6, 0, 9, 5, 7, 0, 0, 5, 9, 1, 8]]],
-  ['夜の鏡', [[6, 7, 1, 6, 6, 7, 0, 0, 0, 7, 1, 3], [6, 9, 2, 7, 2, 2, 9, 4, 9, 7, 4, 10], [1, 5, 10, 2, 3, 6, 8, 9, 0, 7, 10, 4], [8, 3, 4, 8, 7, 1, 0, 9, 5, 10, 5, 10], [5, 3, 7, 8, 8, 7, 0, 9, 6, 3, 6, 4], [4, 6, 10, 0, 4, 7, 1, 10, 5, 3, 6, 4]]],
-  ['夢見る迷路', [[1, 5, 2, 3, 0, 8, 4, 8, 0, 2, 4, 6], [3, 3, 2, 2, 3, 4, 8, 9, 1, 4, 10, 0], [5, 0, 9, 9, 2, 10, 4, 9, 8, 2, 0, 0], [1, 4, 10, 1, 9, 8, 3, 3, 9, 6, 1, 6], [8, 8, 2, 4, 5, 1, 10, 3, 0, 9, 1, 4], [9, 5, 9, 6, 10, 10, 2, 7, 6, 5, 10, 9]]],
-  ['空飛ぶ猫', [[10, 4, 6, 10, 9, 0, 5, 1, 7, 9, 10, 4], [6, 9, 5, 9, 6, 9, 5, 0, 1, 9, 2, 4], [9, 5, 0, 0, 1, 6, 8, 8, 9, 6, 0, 5], [6, 9, 3, 2, 9, 2, 8, 9, 10, 6, 1, 9], [5, 8, 9, 5, 2, 2, 10, 10, 5, 4, 3, 10], [3, 0, 9, 0, 0, 7, 1, 5, 4, 4, 8, 3]]],
-  ['壊れたヒーロー', [[6, 0, 7, 3, 3, 2, 5, 4, 4, 9, 3, 10], [2, 6, 5, 7, 4, 4, 1, 4, 4, 2, 3, 6], [0, 4, 4, 1, 10, 5, 2, 8, 0, 9, 8, 8], [9, 7, 6, 4, 9, 4, 2, 1, 0, 3, 1, 2], [8, 7, 10, 2, 9, 5, 9, 1, 1, 0, 6, 6], [5, 3, 2, 8, 3, 1, 9, 10, 3, 6, 10, 10]]],
-  ['空飛ぶ犬', [[4, 5, 2, 9, 10, 1, 0, 3, 9, 7, 0, 10], [8, 0, 9, 5, 9, 10, 4, 9, 2, 7, 7, 3], [4, 2, 8, 6, 10, 8, 7, 9, 2, 6, 4, 9], [4, 2, 4, 5, 1, 8, 1, 6, 0, 1, 3, 1], [0, 4, 9, 4, 6, 9, 9, 4, 10, 0, 1, 8], [3, 7, 4, 3, 5, 6, 7, 7, 2, 8, 6, 10]]],
-  ['響く光', [[5, 2, 4, 8, 8, 3, 7, 1, 4, 3, 4, 1], [9, 0, 4, 8, 7, 3, 4, 2, 6, 6, 3, 3], [2, 1, 9, 5, 7, 4, 0, 3, 9, 10, 6, 9], [10, 2, 1, 4, 4, 6, 7, 5, 10, 7, 0, 1], [2, 5, 2, 4, 7, 4, 10, 3, 8, 8, 0, 9], [1, 4, 2, 4, 0, 5, 0, 3, 9, 4, 0, 6]]],
-  ['銀河の鏡', [[7, 1, 2, 5, 0, 3, 1, 9, 5, 5, 6, 4], [4, 8, 8, 3, 5, 6, 9, 1, 6, 3, 9, 8], [9, 6, 6, 0, 0, 3, 2, 10, 6, 1, 10, 5], [5, 3, 4, 4, 5, 7, 1, 2, 3, 3, 1, 3], [1, 7, 7, 10, 2, 2, 10, 1, 0, 0, 7, 4], [5, 8, 10, 6, 0, 10, 7, 8, 5, 10, 2, 4]]],
-  ['雪の城', [[9, 10, 6, 5, 3, 0, 5, 8, 8, 9, 10, 2], [1, 8, 8, 9, 2, 7, 10, 7, 4, 0, 8, 10], [1, 1, 3, 8, 2, 1, 8, 0, 4, 10, 9, 2], [3, 10, 8, 6, 8, 10, 5, 1, 1, 2, 4, 6], [7, 0, 9, 10, 4, 9, 6, 0, 10, 3, 0, 2], [8, 6, 1, 3, 3, 10, 6, 8, 0, 5, 2, 2]]],
-  ['月のピアノ', [[7, 0, 4, 10, 9, 1, 6, 0, 6, 0, 0, 3], [5, 4, 5, 8, 9, 10, 7, 10, 2, 2, 9, 4], [6, 7, 2, 1, 8, 2, 9, 6, 5, 1, 0, 9], [4, 8, 7, 7, 9, 7, 10, 7, 5, 5, 3, 9], [6, 0, 6, 7, 5, 5, 9, 9, 1, 8, 8, 0], [8, 5, 1, 4, 5, 9, 0, 10, 5, 0, 7, 9]]],
-  ['壊れたギター', [[9, 7, 5, 5, 8, 0, 3, 6, 4, 8, 4, 4], [3, 4, 0, 4, 5, 8, 10, 5, 7, 5, 6, 2], [2, 3, 5, 1, 10, 0, 7, 3, 2, 3, 2, 5], [5, 9, 5, 10, 9, 2, 1, 7, 5, 3, 1, 7], [10, 9, 8, 4, 5, 5, 2, 4, 9, 1, 5, 7], [10, 9, 4, 2, 4, 4, 6, 8, 10, 0, 10, 7]]],
-  ['雨の光', [[5, 7, 10, 1, 4, 10, 7, 4, 3, 6, 10, 9], [4, 1, 0, 7, 2, 3, 7, 4, 0, 8, 1, 2], [3, 2, 9, 10, 4, 1, 3, 10, 1, 4, 6, 0], [4, 5, 4, 0, 4, 7, 0, 10, 4, 8, 7, 1], [9, 7, 9, 4, 1, 8, 0, 9, 7, 6, 8, 6], [10, 6, 6, 7, 0, 3, 10, 3, 3, 5, 9, 6]]],
-  ['ガラスのパズル', [[10, 1, 2, 7, 4, 7, 8, 0, 2, 9, 10, 1], [3, 9, 4, 8, 0, 6, 4, 6, 8, 0, 6, 0], [5, 9, 9, 6, 8, 9, 9, 0, 0, 2, 1, 0], [6, 3, 10, 3, 3, 4, 3, 10, 9, 7, 1, 8], [5, 7, 8, 1, 6, 0, 5, 1, 2, 6, 5, 6], [1, 0, 8, 1, 10, 2, 10, 4, 6, 7, 8, 5]]],
-  ['鋼鉄のボーカル', [[8, 5, 0, 6, 8, 1, 8, 6, 10, 9, 0, 2], [10, 8, 10, 2, 4, 1, 0, 0, 1, 5, 3, 1], [0, 4, 7, 3, 7, 4, 3, 9, 1, 6, 9, 0], [9, 6, 10, 10, 8, 10, 4, 10, 0, 3, 7, 5], [9, 10, 2, 8, 2, 9, 9, 7, 1, 9, 5, 4], [0, 6, 7, 0, 1, 6, 9, 0, 7, 9, 9, 2]]],
-  ['壊れたパズル', [[3, 10, 7, 0, 7, 9, 2, 3, 8, 0, 5, 10], [4, 4, 3, 10, 3, 5, 5, 10, 1, 7, 7, 1], [4, 4, 3, 3, 8, 9, 4, 10, 8, 8, 7, 4], [7, 4, 4, 3, 4, 6, 0, 10, 5, 3, 2, 2], [0, 5, 4, 7, 8, 7, 1, 8, 2, 3, 5, 5], [1, 7, 5, 5, 10, 2, 3, 7, 0, 9, 9, 2]]],
-  ['雪の流星', [[2, 9, 2, 0, 4, 4, 6, 7, 3, 7, 10, 1], [10, 1, 3, 6, 6, 9, 0, 3, 7, 2, 0, 3], [0, 4, 4, 3, 6, 3, 6, 4, 8, 2, 0, 0], [0, 0, 4, 6, 0, 2, 1, 10, 7, 6, 8, 3], [8, 8, 0, 3, 1, 0, 2, 9, 5, 10, 10, 1], [2, 6, 4, 6, 9, 7, 1, 8, 7, 9, 4, 8]]],
-  ['壊れたピアノ', [[3, 6, 9, 5, 4, 7, 4, 1, 4, 7, 4, 4], [0, 7, 4, 0, 2, 3, 0, 3, 10, 2, 8, 3], [8, 8, 0, 4, 1, 6, 7, 8, 7, 6, 10, 2], [9, 10, 2, 10, 6, 7, 0, 8, 10, 2, 2, 2], [5, 2, 0, 1, 5, 4, 10, 6, 9, 2, 0, 4], [9, 2, 10, 1, 6, 3, 1, 5, 6, 10, 2, 3]]],
-  ['幻の彗星', [[1, 9, 7, 4, 6, 0, 3, 5, 5, 9, 9, 6], [0, 7, 7, 5, 10, 10, 1, 8, 5, 6, 4, 3], [5, 9, 4, 5, 4, 10, 5, 8, 5, 2, 4, 3], [4, 8, 7, 6, 1, 3, 10, 7, 7, 10, 8, 9], [5, 0, 3, 4, 5, 8, 5, 4, 5, 3, 9, 8], [2, 7, 10, 2, 2, 1, 9, 7, 3, 7, 0, 6]]],
-  ['秘密のパズル', [[5, 5, 3, 10, 4, 9, 0, 10, 9, 3, 1, 0], [0, 5, 10, 4, 10, 7, 7, 6, 9, 9, 3, 2], [2, 7, 3, 7, 9, 1, 6, 8, 9, 5, 8, 8], [8, 5, 1, 7, 3, 1, 5, 0, 10, 7, 6, 1], [3, 3, 8, 2, 2, 3, 4, 1, 10, 1, 4, 5], [8, 5, 2, 9, 9, 8, 6, 1, 0, 9, 5, 2]]],
-  ['白い未来', [[4, 6, 2, 7, 7, 1, 3, 1, 6, 4, 6, 3], [4, 9, 0, 7, 3, 2, 10, 3, 7, 3, 9, 2], [6, 2, 9, 7, 6, 0, 9, 6, 0, 4, 10, 7], [6, 4, 6, 4, 2, 7, 0, 5, 2, 8, 2, 0], [8, 1, 9, 7, 6, 4, 10, 4, 7, 9, 5, 5], [10, 1, 2, 8, 4, 9, 8, 3, 10, 3, 4, 5]]],
-  ['刹那のパズル', [[6, 0, 5, 3, 0, 9, 6, 5, 3, 7, 9, 7], [3, 9, 2, 1, 3, 2, 2, 2, 5, 0, 7, 3], [8, 3, 4, 6, 7, 8, 9, 8, 9, 7, 5, 8], [9, 8, 6, 8, 6, 9, 10, 6, 2, 7, 9, 1], [0, 0, 4, 4, 1, 0, 9, 2, 1, 5, 8, 3], [0, 8, 0, 4, 9, 2, 7, 1, 10, 10, 4, 8]]],
-  ['雪のヒーロー', [[6, 0, 7, 7, 6, 5, 3, 6, 1, 4, 6, 1], [1, 1, 4, 9, 9, 4, 6, 0, 9, 5, 1, 3], [0, 9, 4, 4, 5, 1, 8, 6, 7, 4, 7, 6], [2, 7, 10, 5, 7, 7, 9, 6, 1, 5, 2, 3], [8, 4, 10, 4, 10, 5, 4, 10, 1, 1, 7, 4], [3, 9, 6, 0, 10, 10, 7, 2, 1, 2, 4, 2]]],
-  ['真昼の鏡', [[4, 3, 7, 7, 3, 1, 2, 2, 10, 4, 5, 6], [9, 0, 6, 4, 6, 3, 2, 8, 3, 4, 10, 1], [7, 3, 10, 4, 7, 0, 8, 7, 1, 1, 8, 2], [8, 10, 10, 1, 4, 1, 4, 5, 3, 9, 2, 7], [2, 2, 1, 5, 8, 3, 5, 8, 5, 9, 9, 3], [4, 8, 3, 2, 8, 5, 6, 2, 0, 6, 6, 10]]],
-  ['月のロケット', [[7, 5, 10, 9, 4, 5, 1, 6, 1, 5, 2, 8], [4, 2, 8, 10, 6, 3, 0, 5, 3, 10, 1, 4], [1, 1, 5, 2, 8, 0, 10, 4, 10, 4, 4, 0], [2, 9, 3, 4, 1, 8, 6, 7, 10, 1, 4, 0], [9, 1, 0, 4, 4, 4, 4, 8, 7, 8, 8, 7], [5, 5, 4, 2, 5, 8, 8, 3, 10, 0, 2, 0]]],
-  ['幻の怪獣', [[4, 8, 0, 4, 6, 8, 8, 3, 1, 6, 2, 4], [9, 10, 7, 2, 7, 9, 10, 9, 5, 9, 7, 6], [3, 6, 6, 4, 7, 8, 8, 2, 2, 5, 10, 1], [9, 10, 9, 8, 7, 4, 1, 5, 3, 2, 6, 4], [10, 9, 8, 0, 10, 9, 2, 5, 1, 8, 2, 2], [8, 1, 1, 4, 9, 1, 4, 10, 5, 0, 8, 0]]],
-  ['鋼鉄のシンセ', [[6, 3, 4, 8, 0, 4, 7, 10, 1, 8, 5, 4], [2, 8, 0, 1, 1, 9, 6, 8, 2, 5, 3, 5], [6, 5, 10, 3, 0, 5, 5, 2, 8, 10, 6, 6], [4, 5, 5, 0, 8, 0, 6, 9, 9, 1, 6, 5], [1, 10, 6, 0, 7, 3, 5, 1, 2, 5, 1, 7], [2, 5, 4, 10, 1, 5, 6, 8, 3, 1, 9, 4]]],
-  ['最後の砂漠', [[0, 1, 0, 10, 3, 6, 1, 8, 8, 9, 4, 2], [4, 5, 8, 7, 1, 10, 5, 7, 1, 2, 8, 10], [9, 6, 10, 2, 8, 10, 1, 8, 2, 1, 9, 9], [10, 10, 1, 2, 6, 4, 5, 9, 2, 5, 10, 2], [4, 9, 6, 0, 4, 3, 10, 10, 8, 10, 1, 0], [6, 10, 4, 2, 1, 10, 7, 10, 1, 8, 5, 4]]],
-  ['夜の流星', [[6, 2, 1, 4, 3, 2, 6, 0, 3, 4, 6, 2], [0, 1, 1, 3, 3, 0, 8, 0, 4, 9, 6, 6], [3, 2, 2, 9, 3, 3, 1, 6, 1, 7, 2, 0], [10, 3, 7, 9, 10, 2, 1, 2, 8, 3, 10, 4], [9, 3, 10, 2, 5, 10, 4, 2, 7, 2, 5, 0], [10, 10, 4, 5, 4, 7, 4, 10, 9, 2, 10, 4]]],
-  ['朝の流星', [[10, 2, 9, 8, 10, 9, 1, 7, 10, 3, 4, 6], [9, 6, 7, 4, 5, 5, 1, 3, 3, 3, 0, 0], [7, 6, 5, 7, 6, 4, 9, 5, 0, 8, 0, 2], [3, 2, 1, 9, 7, 4, 6, 1, 6, 8, 1, 8], [9, 4, 5, 8, 0, 0, 0, 3, 8, 6, 3, 1], [10, 7, 1, 4, 9, 2, 8, 4, 4, 4, 1, 10]]],
-  ['月の時計', [[6, 2, 3, 1, 1, 4, 7, 6, 10, 10, 6, 10], [5, 4, 7, 2, 3, 5, 3, 0, 4, 10, 7, 4], [6, 1, 2, 9, 4, 9, 10, 9, 7, 2, 8, 10], [0, 10, 10, 1, 3, 7, 9, 7, 6, 2, 1, 7], [4, 5, 3, 2, 9, 5, 0, 10, 6, 9, 4, 4], [2, 8, 7, 5, 10, 4, 2, 9, 5, 0, 3, 8]]],
-  ['黒いボーカル', [[6, 10, 5, 4, 5, 6, 7, 9, 6, 3, 5, 0], [8, 8, 3, 7, 3, 6, 4, 2, 4, 8, 7, 10], [8, 3, 9, 6, 8, 3, 6, 8, 1, 10, 8, 3], [7, 3, 8, 2, 2, 5, 5, 8, 8, 0, 9, 1], [6, 6, 2, 9, 7, 4, 2, 7, 7, 2, 9, 2], [7, 2, 5, 1, 7, 0, 0, 2, 2, 5, 7, 0]]],
-  ['鋼鉄の砂漠', [[4, 3, 6, 5, 9, 1, 2, 2, 5, 4, 10, 7], [6, 6, 7, 3, 4, 1, 3, 10, 0, 8, 9, 7], [10, 2, 5, 10, 9, 1, 4, 2, 2, 5, 10, 2], [3, 5, 7, 6, 5, 7, 10, 1, 4, 2, 10, 7], [6, 0, 6, 4, 6, 1, 9, 0, 3, 6, 7, 9], [1, 3, 4, 7, 9, 10, 4, 10, 9, 6, 6, 4]]],
-  ['最後の光', [[8, 10, 2, 5, 10, 9, 8, 3, 3, 7, 9, 3], [1, 0, 7, 10, 6, 10, 6, 9, 10, 3, 6, 0], [2, 3, 3, 1, 3, 3, 2, 2, 10, 9, 3, 4], [3, 3, 0, 8, 7, 10, 5, 4, 4, 10, 4, 4], [10, 7, 10, 7, 3, 9, 8, 3, 0, 3, 10, 4], [4, 0, 1, 2, 7, 7, 7, 4, 3, 0, 2, 9]]],
-  ['永遠のベース', [[0, 8, 5, 2, 1, 8, 4, 0, 9, 4, 9, 5], [0, 3, 3, 7, 1, 10, 10, 3, 3, 3, 1, 0], [7, 7, 6, 3, 1, 0, 0, 0, 7, 7, 8, 6], [1, 4, 2, 8, 6, 7, 10, 2, 2, 1, 0, 6], [9, 5, 9, 4, 6, 3, 4, 5, 1, 4, 5, 4], [0, 9, 1, 5, 5, 8, 7, 10, 3, 0, 5, 2]]],
-  ['夜のカラス', [[5, 10, 4, 0, 10, 0, 5, 2, 9, 10, 9, 6], [4, 2, 2, 9, 4, 0, 1, 8, 5, 0, 9, 1], [8, 5, 1, 9, 2, 8, 10, 10, 2, 7, 6, 5], [10, 5, 1, 9, 4, 9, 0, 9, 0, 4, 1, 6], [5, 8, 9, 2, 4, 4, 7, 9, 5, 1, 9, 4], [6, 1, 7, 4, 5, 2, 2, 4, 3, 3, 5, 4]]],
-  ['銀河の狼', [[6, 8, 0, 9, 1, 5, 5, 10, 9, 10, 0, 10], [9, 10, 4, 9, 10, 9, 2, 5, 10, 0, 6, 9], [8, 3, 7, 1, 5, 0, 10, 9, 10, 2, 10, 4], [0, 0, 1, 6, 7, 0, 0, 4, 7, 1, 9, 6], [4, 0, 8, 1, 6, 0, 1, 7, 3, 5, 8, 2], [7, 6, 6, 0, 8, 3, 3, 0, 1, 7, 4, 1]]],
-  ['嵐の城', [[4, 4, 10, 4, 10, 9, 7, 4, 3, 1, 9, 1], [1, 10, 8, 4, 10, 10, 1, 9, 4, 1, 6, 2], [8, 2, 4, 8, 7, 6, 6, 4, 9, 9, 2, 1], [3, 10, 5, 6, 5, 1, 8, 9, 9, 7, 10, 9], [4, 3, 0, 2, 1, 3, 7, 1, 2, 0, 2, 4], [7, 4, 8, 1, 7, 4, 1, 9, 7, 1, 6, 2]]],
-  ['銀河のパズル', [[9, 10, 0, 1, 4, 5, 8, 3, 2, 5, 5, 2], [10, 4, 6, 9, 4, 0, 9, 8, 10, 0, 7, 1], [9, 8, 4, 8, 7, 6, 8, 2, 1, 3, 6, 7], [2, 9, 8, 6, 5, 4, 9, 1, 0, 7, 1, 4], [5, 7, 5, 1, 5, 1, 8, 9, 3, 4, 0, 3], [4, 0, 3, 1, 7, 7, 9, 0, 1, 1, 10, 2]]],
-  ['雨の海', [[8, 10, 4, 7, 7, 0, 6, 5, 1, 6, 1, 5], [10, 5, 3, 10, 2, 7, 1, 1, 10, 3, 0, 10], [1, 10, 2, 10, 5, 8, 7, 10, 1, 6, 0, 10], [9, 3, 7, 3, 4, 9, 3, 8, 6, 8, 0, 3], [10, 10, 10, 7, 0, 0, 1, 2, 7, 0, 3, 0], [3, 9, 1, 6, 6, 9, 7, 8, 8, 8, 7, 4]]],
-  ['太陽の犬', [[2, 8, 9, 7, 10, 8, 5, 10, 2, 2, 5, 6], [6, 5, 10, 0, 1, 3, 3, 0, 1, 9, 8, 0], [6, 0, 2, 3, 4, 3, 5, 2, 0, 6, 9, 0], [7, 10, 4, 4, 0, 2, 9, 2, 3, 9, 10, 6], [5, 10, 1, 0, 5, 0, 3, 0, 8, 1, 6, 2], [8, 4, 2, 9, 5, 6, 2, 8, 2, 1, 10, 2]]],
-  ['最後の彗星', [[4, 1, 7, 4, 10, 0, 0, 4, 2, 7, 3, 1], [5, 3, 9, 7, 9, 8, 8, 0, 7, 0, 5, 0], [0, 9, 3, 10, 4, 2, 10, 3, 4, 8, 7, 9], [8, 10, 9, 2, 1, 6, 10, 9, 10, 10, 1, 2], [5, 6, 3, 5, 7, 8, 8, 7, 5, 6, 1, 2], [1, 3, 8, 2, 8, 1, 7, 4, 2, 5, 9, 4]]],
-  ['夢見るピアノ', [[6, 6, 8, 2, 5, 8, 0, 5, 4, 9, 10, 5], [6, 2, 9, 8, 0, 8, 5, 2, 2, 4, 8, 4], [5, 8, 0, 7, 1, 3, 9, 9, 9, 3, 5, 4], [0, 1, 8, 1, 1, 9, 1, 4, 2, 3, 1, 8], [10, 4, 3, 3, 10, 10, 7, 7, 3, 5, 0, 0], [4, 4, 7, 3, 3, 10, 1, 4, 5, 2, 9, 2]]],
-  ['響く海', [[8, 7, 5, 2, 5, 3, 6, 1, 8, 8, 0, 1], [9, 3, 9, 10, 5, 1, 10, 4, 8, 4, 0, 10], [1, 9, 7, 8, 8, 0, 1, 8, 4, 10, 0, 5], [1, 2, 8, 1, 8, 3, 9, 2, 4, 8, 4, 6], [6, 7, 1, 4, 0, 4, 5, 1, 4, 7, 10, 0], [10, 0, 2, 0, 2, 1, 1, 8, 2, 4, 1, 5]]],
-  ['星の流星', [[10, 6, 4, 6, 10, 7, 0, 4, 1, 10, 1, 9], [6, 5, 10, 8, 5, 2, 8, 0, 2, 9, 2, 6], [3, 5, 4, 10, 0, 7, 9, 4, 1, 5, 3, 9], [8, 9, 9, 10, 3, 5, 0, 7, 4, 7, 6, 8], [1, 8, 9, 5, 9, 6, 4, 0, 0, 2, 2, 4], [2, 4, 5, 9, 3, 0, 1, 7, 2, 6, 5, 7]]],
-  ['銀河の流星', [[4, 7, 4, 4, 9, 10, 8, 4, 4, 10, 2, 10], [6, 2, 7, 4, 10, 6, 8, 2, 5, 7, 7, 8], [8, 0, 2, 2, 5, 6, 5, 10, 9, 5, 3, 4], [0, 10, 2, 9, 4, 3, 10, 9, 8, 0, 4, 5], [1, 6, 8, 9, 7, 8, 8, 9, 10, 1, 2, 2], [4, 2, 5, 8, 10, 7, 3, 3, 2, 8, 9, 5]]],
-  ['銀河のヒーロー', [[7, 2, 7, 9, 4, 4, 2, 9, 1, 9, 0, 10], [7, 2, 4, 3, 0, 9, 8, 2, 4, 4, 9, 10], [7, 10, 6, 9, 2, 9, 0, 3, 7, 5, 1, 2], [9, 0, 6, 3, 10, 10, 6, 3, 5, 5, 0, 7], [7, 0, 5, 3, 5, 8, 10, 2, 8, 4, 10, 9], [4, 10, 10, 10, 3, 8, 2, 6, 8, 3, 4, 9]]],
-  ['夢見る革命', [[6, 4, 3, 5, 0, 10, 7, 4, 1, 0, 2, 5], [10, 10, 9, 7, 9, 7, 8, 10, 8, 1, 4, 2], [9, 0, 9, 7, 6, 3, 0, 6, 3, 0, 7, 7], [8, 4, 5, 9, 9, 4, 2, 5, 7, 1, 8, 2], [1, 0, 3, 10, 8, 8, 4, 10, 2, 7, 0, 5], [1, 1, 7, 3, 2, 6, 9, 4, 1, 0, 6, 2]]],
-  ['秘密の光', [[0, 8, 8, 4, 7, 6, 2, 1, 7, 0, 0, 10], [7, 0, 3, 2, 3, 2, 0, 7, 7, 7, 1, 0], [1, 3, 2, 2, 7, 2, 8, 7, 3, 7, 8, 10], [4, 7, 3, 9, 2, 7, 0, 6, 10, 10, 9, 8], [4, 1, 0, 2, 10, 8, 7, 6, 1, 4, 4, 6], [6, 6, 8, 0, 7, 3, 10, 6, 9, 10, 10, 0]]],
-  ['ガラスの砂漠', [[3, 9, 4, 5, 7, 2, 10, 9, 9, 10, 9, 4], [4, 8, 4, 8, 9, 2, 10, 1, 8, 8, 4, 4], [6, 8, 10, 6, 8, 1, 7, 1, 0, 4, 3, 4], [9, 4, 8, 9, 4, 10, 0, 9, 5, 7, 8, 0], [9, 8, 4, 6, 4, 7, 7, 1, 2, 2, 7, 10], [5, 5, 0, 1, 0, 3, 5, 5, 0, 5, 4, 10]]],
-  ['赤い犬', [[8, 10, 0, 5, 2, 3, 10, 5, 4, 8, 9, 1], [1, 0, 1, 0, 4, 6, 1, 6, 9, 1, 5, 7], [1, 6, 10, 6, 8, 9, 2, 7, 6, 2, 10, 6], [5, 9, 1, 1, 6, 10, 0, 0, 10, 3, 0, 4], [5, 7, 7, 1, 7, 2, 0, 1, 3, 10, 5, 1], [10, 6, 2, 4, 2, 5, 0, 5, 8, 0, 1, 6]]],
-  ['星のドラム', [[3, 2, 1, 6, 9, 9, 9, 9, 2, 7, 9, 9], [1, 5, 8, 3, 7, 4, 10, 8, 8, 5, 2, 6], [7, 5, 10, 1, 6, 7, 5, 9, 10, 7, 4, 8], [9, 0, 8, 7, 1, 9, 0, 9, 3, 8, 4, 3], [9, 1, 9, 6, 0, 3, 10, 9, 3, 10, 0, 7], [9, 6, 1, 6, 3, 9, 8, 10, 10, 10, 7, 9]]],
-  ['雪のピアノ', [[0, 1, 2, 8, 5, 1, 10, 0, 1, 10, 2, 8], [1, 4, 5, 10, 0, 8, 10, 8, 4, 3, 3, 1], [5, 4, 4, 6, 10, 8, 8, 1, 9, 10, 1, 8], [8, 10, 3, 0, 4, 3, 10, 4, 0, 8, 3, 10], [3, 7, 6, 3, 3, 7, 0, 4, 7, 9, 6, 6], [1, 3, 4, 6, 9, 8, 4, 1, 10, 10, 4, 7]]],
-  ['白い光', [[6, 7, 10, 0, 0, 9, 4, 4, 0, 2, 10, 5], [7, 7, 8, 8, 10, 1, 2, 8, 8, 8, 8, 5], [0, 4, 9, 3, 0, 7, 0, 7, 3, 0, 5, 3], [4, 1, 7, 2, 9, 10, 0, 2, 0, 3, 5, 9], [2, 1, 10, 3, 4, 2, 6, 3, 4, 0, 8, 3], [8, 9, 1, 8, 8, 8, 8, 0, 7, 7, 3, 6]]],
-  ['雨の時計', [[6, 1, 6, 6, 0, 0, 0, 3, 1, 3, 8, 1], [1, 9, 9, 4, 3, 10, 3, 8, 10, 0, 8, 8], [5, 6, 1, 7, 6, 0, 5, 2, 4, 9, 8, 1], [4, 0, 1, 10, 10, 4, 8, 5, 6, 6, 2, 1], [0, 10, 10, 0, 5, 0, 4, 5, 10, 0, 5, 5], [9, 7, 7, 7, 2, 2, 9, 0, 2, 9, 8, 0]]]
-];
 
 async function fetchBandPreferSource(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   weekId: number | null
-): Promise<unknown> {
-  // 将来的には weekId を活かして DB から条件付きで取得する想定。
-  return dummyBandsPreferSource;
+): Promise<RawBandPreferEntry[]> {
+  if (weekId === null || Number.isNaN(weekId)) {
+    console.log("[fetchBandPreferSource] Invalid weekId:", weekId);
+    return [];
+  }
+
+  console.log("[fetchBandPreferSource] Fetching data for week_id:", weekId);
+
+  // 1. bandsテーブルからバンド情報を取得
+  const { data: bandsRaw, error: bandsError } = await supabase
+    .from("bands")
+    .select("band_id, band_name");
+  if (bandsError) {
+    console.error("[fetchBandPreferSource] bands error:", bandsError);
+    throw new Error(`Failed to load bands: ${bandsError.message}`);
+  }
+  const bands = (bandsRaw ?? []) as BandRow[];
+  console.log("[fetchBandPreferSource] Loaded bands:", bands.length);
+
+  // 2. band_membersテーブルからバンドとメンバーの紐付けを取得
+  const { data: bandMembersRaw, error: bandMembersError } = await supabase
+    .from("band_members")
+    .select("band_id, member_id");
+  if (bandMembersError) {
+    console.error("[fetchBandPreferSource] band_members error:", bandMembersError);
+    throw new Error(`Failed to load band members: ${bandMembersError.message}`);
+  }
+  const bandMembers = (bandMembersRaw ?? []) as BandMemberRow[];
+  console.log("[fetchBandPreferSource] Loaded band_members:", bandMembers.length);
+
+  // 3. 指定週のメンバー希望時間を先に取得
+  const { data: memberPrefersRaw, error: memberPrefersError } = await supabase
+    .from("members_prefer")
+    .select("member_id, priority, updated_at")
+    .eq("week_id", weekId);
+  
+  console.log("[fetchBandPreferSource] members_prefer query result:", {
+    data: memberPrefersRaw,
+    error: memberPrefersError,
+    count: memberPrefersRaw?.length ?? 0
+  });
+  
+  if (memberPrefersError) {
+    console.error("[fetchBandPreferSource] members_prefer error:", memberPrefersError);
+    throw new Error(
+      `Failed to load members_prefer: ${memberPrefersError.message}`
+    );
+  }
+  const memberPrefers = (memberPrefersRaw ?? []) as MemberPreferRow[];
+  console.log("[fetchBandPreferSource] Loaded members_prefer:", memberPrefers.length);
+
+  // members_preferに存在するmember_idのリストを取得
+  const memberIdsInPrefer = Array.from(new Set(memberPrefers.map(p => p.member_id)));
+  console.log("[fetchBandPreferSource] memberIdsInPrefer:", memberIdsInPrefer);
+
+  // 4. membersテーブルから band_members に登場するメンバーの情報を取得
+  const memberIdsInBands = Array.from(new Set(bandMembers.map((bm) => bm.member_id)));
+
+  let members: MemberRow[] = [];
+  if (memberIdsInBands.length > 0) {
+    const { data: membersRaw, error: membersError } = await supabase
+      .from("members")
+      .select("member_id, practice_available")
+      .in("member_id", memberIdsInBands);
+    
+    console.log("[fetchBandPreferSource] members query result:", {
+      data: membersRaw,
+      error: membersError,
+      count: membersRaw?.length ?? 0
+    });
+    
+    if (membersError) {
+      console.error("[fetchBandPreferSource] members error:", membersError);
+      // membersテーブルが空でもエラーにせず続行
+      console.warn("[fetchBandPreferSource] Failed to load members, continuing without penalty check");
+    } else {
+      members = (membersRaw ?? []) as MemberRow[];
+    }
+  }
+  console.log("[fetchBandPreferSource] Loaded members:", members.length);
+
+  // バンドIDとバンド名のマッピング
+  const bandNameById = new Map<number, string>();
+  for (const band of bands) {
+    bandNameById.set(band.band_id, band.band_name);
+  }
+
+  // バンドIDとメンバーIDのマッピング
+  const membersByBand = new Map<number, number[]>();
+  const bandIdsByMember = new Map<number, number[]>();
+
+  for (const relation of bandMembers) {
+    if (!bandNameById.has(relation.band_id)) continue;
+    const list = membersByBand.get(relation.band_id);
+    if (list) {
+      list.push(relation.member_id);
+    } else {
+      membersByBand.set(relation.band_id, [relation.member_id]);
+    }
+
+    const bandIds = bandIdsByMember.get(relation.member_id);
+    if (bandIds) {
+      bandIds.push(relation.band_id);
+    } else {
+      bandIdsByMember.set(relation.member_id, [relation.band_id]);
+    }
+  }
+
+  // practice_available が false の罰則メンバーを特定
+  const penalizedMembers = new Set<number>();
+  if (members.length > 0) {
+    for (const member of members) {
+      // practice_available が明示的に false の場合のみ罰則扱い
+      if (member.practice_available === false) {
+        penalizedMembers.add(member.member_id);
+      }
+    }
+  }
+  console.log("[fetchBandPreferSource] penalizedMembers:", Array.from(penalizedMembers));
+
+  // メンバーIDと優先度行列のマッピング(最新のupdated_atを採用)
+  const preferMatrixByMember = new Map<
+    number,
+    { matrix: NumberMatrix; updatedAt: string | null }
+  >();
+  for (const prefer of memberPrefers) {
+    const matrix = parsePriorityMatrix(prefer.priority);
+    if (!matrix) {
+      console.log("[fetchBandPreferSource] Failed to parse priority for member:", prefer.member_id);
+      continue;
+    }
+
+    const existing = preferMatrixByMember.get(prefer.member_id);
+    if (
+      !existing ||
+      ((prefer.updated_at ?? "") > (existing.updatedAt ?? ""))
+    ) {
+      preferMatrixByMember.set(prefer.member_id, {
+        matrix,
+        updatedAt: prefer.updated_at ?? null,
+      });
+    }
+  }
+  console.log("[fetchBandPreferSource] preferMatrixByMember size:", preferMatrixByMember.size);
+
+  for (const memberId of preferMatrixByMember.keys()) {
+    if (!bandIdsByMember.has(memberId)) {
+      console.log("[fetchBandPreferSource] prefer member not linked to any band", { memberId });
+    }
+  }
+
+  // バンドごとにメンバーの優先度を集約
+  const result: RawBandPreferEntry[] = [];
+
+  for (const [bandId, memberIds] of membersByBand) {
+    const bandName = bandNameById.get(bandId);
+    if (!bandName) continue;
+
+    // 重複排除
+    const uniqueMemberIds = Array.from(new Set(memberIds));
+    if (uniqueMemberIds.length === 0) continue;
+
+    // 罰則メンバーがいる場合はバンドをスキップ
+    if (uniqueMemberIds.some((memberId) => penalizedMembers.has(memberId))) {
+      console.log("[fetchBandPreferSource] skip penalized", { bandId, bandName, memberIds: uniqueMemberIds });
+      continue;
+    }
+
+  const aggregated = zeroMatrix();
+  let hasContribution = false;
+
+  const contributingMemberIds: number[] = [];
+
+    // メンバー全員の優先度を合算
+    for (const memberId of uniqueMemberIds) {
+      const preferEntry = preferMatrixByMember.get(memberId);
+      if (!preferEntry) {
+        console.log("[fetchBandPreferSource] skip member (missing prefer)", { bandId, bandName, memberId });
+        continue;
+      }
+      addMatrixInto(aggregated, preferEntry.matrix);
+      contributingMemberIds.push(memberId);
+      hasContribution = true;
+    }
+
+    if (!hasContribution || !hasAnyPositive(aggregated)) {
+      console.log("[fetchBandPreferSource] skip band (no positive scores)", { bandId, bandName });
+      continue;
+    }
+
+    console.log("[fetchBandPreferSource] contributing members", { bandId, bandName, memberIds: contributingMemberIds });
+    result.push([bandName, aggregated]);
+    console.log("[fetchBandPreferSource] Added band:", bandName);
+  }
+
+  // バンド名で昇順ソート
+  result.sort((a, b) => a[0].localeCompare(b[0], "ja"));
+  console.log("[fetchBandPreferSource] Final result count:", result.length);
+
+  return result;
+
 }
 
 // 擬似的に practice_session テーブルへ保存した体裁の配列。
@@ -165,6 +354,7 @@ function assignPracticeSlots(scores: [string, NumberMatrix][]): NicePreferMatrix
   const candidates: Candidate[] = [];
 
   for (const [bandName, scoreMatrix] of scores) {
+
     for (let dayIndex = 0; dayIndex < DAYS; dayIndex += 1) {
       for (let hourIndex = 0; hourIndex < HOURS; hourIndex += 1) {
         const baseScore = scoreMatrix[dayIndex][hourIndex];
@@ -213,9 +403,11 @@ export async function GET(request: Request) {
     const weekId = weekIdParam ? Number(weekIdParam) : null;
 
     // 1. 生データを取得し、
-  const rawBandPrefer = await fetchBandPreferSource(weekId);
+
+    const rawBandPrefer = await fetchBandPreferSource(weekId);
     // 2. 正規化してからスコアリングルールに通す。
-  const bandsPreferScore = buildBandPreferScores(rawBandPrefer);
+    const bandsPreferScore = buildBandPreferScores(rawBandPrefer);
+
     const nicePrefer = assignPracticeSlots(bandsPreferScore);
 
     if (weekId !== null && !Number.isNaN(weekId)) {
@@ -232,7 +424,8 @@ export async function GET(request: Request) {
           nice_prefer: JSON.parse(JSON.stringify(nicePrefer)),
         });
       }
-      console.log("[dummyPracticeSessions]", dummyPracticeSessions);
+
+
     }
 
     console.log("[bands_prefer_score]", JSON.stringify(bandsPreferScore));
@@ -242,11 +435,51 @@ export async function GET(request: Request) {
       bands_prefer_score: bandsPreferScore,
       nice_prefer: nicePrefer,
     });
-  } catch (error) {
+
+   } catch (error) {
+
     console.error("bands_prefer_score 生成エラー:", error);
     return NextResponse.json(
       { error: "Failed to build bands_prefer_score" },
       { status: 500 }
     );
   }
+
+}
+
+function countAssignedBands(matrix: NicePreferMatrix): number {
+  const bands = new Set<string>();
+  for (const day of matrix) {
+    for (const hour of day) {
+      for (const entry of hour) {
+        if (typeof entry === "string") {
+          bands.add(entry);
+        }
+      }
+    }
+  }
+  return bands.size;
+}
+
+function countBandOccurrences(matrix: NicePreferMatrix): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const day of matrix) {
+    for (const hour of day) {
+      for (const entry of hour) {
+        if (typeof entry === "string") {
+          counts.set(entry, (counts.get(entry) ?? 0) + 1);
+        }
+      }
+    }
+  }
+  return counts;
+}
+
+function logBandSlotCounts(matrix: NicePreferMatrix): void {
+  const occurrences = countBandOccurrences(matrix);
+  console.log(
+    "[nice_prefer slot counts]",
+    JSON.stringify(Object.fromEntries(occurrences), null, 2)
+  );
+
 }
