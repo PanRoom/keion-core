@@ -148,3 +148,33 @@ export async function PUT(request: Request) {
     );
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const weekId = searchParams.get("week_id");
+
+    if (!weekId) {
+      return NextResponse.json(
+        { error: "week_id is required" },
+        { status: 400 }
+      );
+    }
+
+    // スケジュールを削除（または is_finished を true にする）
+    const { error } = await supabase
+      .from("practice_session")
+      .update({ is_finished: true })
+      .eq("week_id", weekId);
+
+    if (error) throw error;
+
+    return NextResponse.json({ success: true, message: "募集を終了しました" });
+  } catch (error) {
+    console.error("Error ending recruitment:", error);
+    return NextResponse.json(
+      { error: "Failed to end recruitment" },
+      { status: 500 }
+    );
+  }
+}
