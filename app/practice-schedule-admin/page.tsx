@@ -5,9 +5,6 @@ import { PracticeScheduleAdminTable } from "@/components/practice-schedule-admin
 import { Button } from "@/components/ui/button";
 
 export default function PracticeScheduleAdminPage() {
-  // 編集モード (true: 編集可能, false: 確認表示のみ)
-  const [isEditing, setIsEditing] = useState(false);
-
   // スケジュールマトリックス
   const [scheduleMatrix, setScheduleMatrix] = useState<number[][]>(
     Array(6)
@@ -26,6 +23,12 @@ export default function PracticeScheduleAdminPage() {
     null
   );
 
+  // 希望提出者数
+  const [submissionCount, setSubmissionCount] = useState<number>(0);
+
+  // 募集中かどうか
+  const [isRecruiting, setIsRecruiting] = useState(false);
+
   // 初回ロード時に既存のスケジュールを取得
   useEffect(() => {
     const fetchSchedule = async () => {
@@ -38,6 +41,10 @@ export default function PracticeScheduleAdminPage() {
             setScheduleMatrix(data.available);
             setStartDate(data.start_date);
             setExistingScheduleId(data.week_id);
+            setIsRecruiting(true); // スケジュールが存在する = 募集中
+
+            // 希望提出者数を取得
+            await fetchSubmissionCount(data.week_id);
           }
         } else if (response.status !== 404) {
           console.error("スケジュール取得エラー:", await response.text());
@@ -51,6 +58,23 @@ export default function PracticeScheduleAdminPage() {
 
     fetchSchedule();
   }, []);
+
+  // 希望提出者数を取得
+  const fetchSubmissionCount = async (weekId: number) => {
+    try {
+      const response = await fetch(`/api/practice-requests?week_id=${weekId}`);
+      if (response.ok) {
+        const data = await response.json();
+        // ユニークなmember_idの数を数える
+        const uniqueMembers = new Set(
+          data.map((item: { member_id: number }) => item.member_id)
+        );
+        setSubmissionCount(uniqueMembers.size);
+      }
+    } catch (error) {
+      console.error("提出者数取得エラー:", error);
+    }
+  };
 
   // 火曜日のみを取得する関数
   const getTuesdays = () => {
@@ -97,11 +121,6 @@ export default function PracticeScheduleAdminPage() {
     }月${date.getDate()}日 (火)`;
   };
 
-  // スケジュール変更ボタン
-  const handleEditClick = () => {
-    setIsEditing(true);
-  };
-
   // 決定(募集開始)ボタン
   const handleSubmit = async () => {
     if (!startDate) {
@@ -127,8 +146,10 @@ export default function PracticeScheduleAdminPage() {
       if (response.ok) {
         const data = await response.json();
         setExistingScheduleId(data.week_id);
-        setIsEditing(false);
+        setIsRecruiting(true);
         alert("募集を開始しました");
+        // 提出者数を更新
+        await fetchSubmissionCount(data.week_id);
       } else {
         const error = await response.json();
         alert(`エラー: ${error.error || "保存に失敗しました"}`);
@@ -136,6 +157,46 @@ export default function PracticeScheduleAdminPage() {
     } catch (error) {
       console.error("保存エラー:", error);
       alert("保存に失敗しました");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 募集終了ボタン
+  const handleEndRecruitment = async () => {
+    if (!confirm("募集を終了してもよろしいですか？")) {
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // スケジュールを削除
+      const response = await fetch(
+        `/api/practice-schedule?week_id=${existingScheduleId}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (response.ok) {
+        setExistingScheduleId(null);
+        setIsRecruiting(false);
+        setSubmissionCount(0);
+        setStartDate("");
+        setScheduleMatrix(
+          Array(6)
+            .fill(0)
+            .map(() => Array(12).fill(0))
+        );
+        alert("募集を終了しました");
+      } else {
+        const error = await response.json();
+        alert(`エラー: ${error.error || "募集終了に失敗しました"}`);
+      }
+    } catch (error) {
+      console.error("募集終了エラー:", error);
+      alert("募集終了に失敗しました");
     } finally {
       setIsLoading(false);
     }
@@ -154,7 +215,7 @@ export default function PracticeScheduleAdminPage() {
             練習スケジュール設定 (役員用)
           </h1>
           <p className="text-muted-foreground mt-2">
-            練習可能な曜日と時間を設定してください。チェックが入っている時間は練習可能できません。
+            練習可能な曜日と時間を設定してください。チェックが入っている時間は練習できません。
           </p>
         </div>
 
@@ -165,12 +226,38 @@ export default function PracticeScheduleAdminPage() {
           </div>
         )}
 
+        {/* 募集中の表示 */}
+        {isRecruiting && (
+          <div className="mb-6 p-4 bg-green-50 border-2 border-green-300 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-lg font-bold text-green-900 flex items-center gap-2">
+                  <span className="inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
+                  募集中
+                </p>
+                <p className="text-sm text-green-700 mt-1">
+                  希望提出者:{" "}
+                  <span className="font-bold text-xl">{submissionCount}</span>{" "}
+                  人
+                </p>
+              </div>
+              <Button
+                onClick={handleEndRecruitment}
+                variant="destructive"
+                disabled={isLoading}
+              >
+                募集終了
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* スケジュール表示・編集エリア */}
         <div className="mb-6">
           <PracticeScheduleAdminTable
             initialMatrix={scheduleMatrix}
             onScheduleChange={handleScheduleChange}
-            isEditable={isEditing}
+            isEditable={!isRecruiting}
           />
         </div>
 
@@ -182,7 +269,7 @@ export default function PracticeScheduleAdminPage() {
           <select
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
-            disabled={!isEditing}
+            disabled={isRecruiting}
             className="w-full max-w-md p-2 border border-input rounded-md bg-background disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <option value="">選択してください</option>
@@ -196,19 +283,22 @@ export default function PracticeScheduleAdminPage() {
 
         {/* ボタンエリア */}
         <div className="flex gap-4">
-          {!isEditing && (
-            <Button
-              onClick={handleEditClick}
-              variant="outline"
-              disabled={isLoading}
-            >
-              スケジュール変更
+          {!isRecruiting && (
+            <Button onClick={handleSubmit} disabled={isLoading}>
+              {isLoading ? "保存中..." : "決定（募集開始）"}
             </Button>
           )}
-          <Button onClick={handleSubmit} disabled={!isEditing || isLoading}>
-            {isLoading ? "保存中..." : "決定（募集開始）"}
-          </Button>
         </div>
+
+        {/* 募集中の注意書き */}
+        {isRecruiting && (
+          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-sm text-amber-800">
+              💡
+              スケジュールを変更する場合は、一度「募集終了」ボタンで募集を終了してから、新規で作成してください。
+            </p>
+          </div>
+        )}
 
         {/* デバッグ情報 */}
         <div className="mt-6 p-4 bg-muted rounded-lg">
@@ -216,12 +306,17 @@ export default function PracticeScheduleAdminPage() {
           <div className="space-y-2">
             <div>
               <p className="text-xs text-muted-foreground mb-1">
-                編集モード: {isEditing ? "編集中" : "確認表示"}
+                募集状態: {isRecruiting ? "募集中" : "募集前"}
               </p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">
                 週の開始日: {startDate ? formatDate(startDate) : "未選択"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">
+                希望提出者数: {submissionCount}人
               </p>
             </div>
             <div>

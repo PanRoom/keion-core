@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Table,
   TableHeader,
@@ -43,11 +43,26 @@ export function PracticeScheduleAdminTable({
   // スケジュールマトリックス (6曜日 x 12時間)
   // 1: 練習可能, 0: 練習不可
   const [scheduleMatrix, setScheduleMatrix] = useState<number[][]>(
-    initialMatrix ||
+    () =>
+      initialMatrix ||
       Array(DAYS.length)
         .fill(0)
         .map(() => Array(TIME_SLOTS.length).fill(0))
   );
+
+  // initialMatrix が変更されたら scheduleMatrix を更新
+  useEffect(() => {
+    if (initialMatrix) {
+      // JSON文字列化して深い比較
+      const currentStr = JSON.stringify(scheduleMatrix);
+      const initialStr = JSON.stringify(initialMatrix);
+      if (currentStr !== initialStr) {
+        setScheduleMatrix(initialMatrix);
+      }
+    }
+    // scheduleMatrixは意図的に依存配列から除外
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMatrix]);
 
   // 個別の時間スロットをトグル
   const handleTimeSlotToggle = (dayIndex: number, timeIndex: number) => {

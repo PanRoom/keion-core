@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 /**
  * GET: 部員の練習希望を取得
  * クエリパラメータ:
- *   - member_id: 部員ID
+ *   - member_id: 部員ID（オプション）
  *   - week_id: 週ID（オプション）
  */
 export async function GET(request: Request) {
@@ -13,17 +13,12 @@ export async function GET(request: Request) {
     const memberId = searchParams.get("member_id");
     const weekId = searchParams.get("week_id");
 
-    if (!memberId) {
-      return NextResponse.json(
-        { error: "member_id is required" },
-        { status: 400 }
-      );
-    }
+    let query = supabase.from("members_prefer").select("*");
 
-    let query = supabase
-      .from("members_prefer")
-      .select("*")
-      .eq("member_id", memberId);
+    // 部員IDでフィルタ
+    if (memberId) {
+      query = query.eq("member_id", memberId);
+    }
 
     // 特定の週のみ取得する場合
     if (weekId) {
