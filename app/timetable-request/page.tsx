@@ -161,7 +161,9 @@ export default function TimetableRequestPage() {
     }));
   });
   const [errors, setErrors] = useState<string[]>([]);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // ==========================================
   // イベントハンドラー
@@ -202,7 +204,7 @@ export default function TimetableRequestPage() {
     setRequests((prev) => {
       const newRequests = [...prev];
 
-  const startHour = START_HOUR_OPTIONS[0];
+      const startHour = START_HOUR_OPTIONS[0];
       const startMinute = MINUTE_OPTIONS[0];
       const { hour: endHour, minute: endMinute } = add30Minutes(startHour, startMinute);
 
@@ -305,7 +307,10 @@ export default function TimetableRequestPage() {
     []
   );
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    setSubmitted(false);
+    setApiError(null);
+
     const validationErrors = validateRequests(requests);
 
     if (validationErrors.length > 0) {
@@ -313,7 +318,7 @@ export default function TimetableRequestPage() {
       return;
     }
 
-    const timeSlotList: string[] = [];
+    const structuredTimeSlots: { date: string; start: string; end: string }[] = [];
 
     requests.forEach((day) => {
       if (day.unavailable) {
@@ -321,31 +326,70 @@ export default function TimetableRequestPage() {
       }
 
       if (day.allDay) {
-        timeSlotList.push(`[${day.date} 09:00~21:00]`);
+        structuredTimeSlots.push({ date: day.date, start: "09:00", end: "21:00" });
       } else {
         day.timeSlots.forEach((slot) => {
           const start = `${slot.startHour}:${slot.startMinute}`;
           const end = `${slot.endHour}:${slot.endMinute}`;
-          timeSlotList.push(`[${day.date} ${start}~${end}]`);
+          structuredTimeSlots.push({ date: day.date, start, end });
         });
       }
     });
 
+    const availableTimes = structuredTimeSlots.map(({ date, start, end }) => [
+      date,
+      start,
+      end,
+    ]);
+
+    if (availableTimes.length === 0) {
+      setErrors(["少なくとも1つの出席可能時間を選択してください"]);
+      return;
+    }
+
     const submitData = {
       event_id: 1,
       member_id: 999,
-      available_times: timeSlotList,
+      available_times: availableTimes,
     };
 
     console.log("📤 送信データ:", JSON.stringify(submitData, null, 2));
     console.log("\n📋 フォーマット済み出力:");
-    timeSlotList.forEach((timeSlot) => {
-      console.log(timeSlot);
-    });
+    console.log(JSON.stringify(availableTimes, null, 2));
 
-    setSubmitted(true);
-    setErrors([]);
+    setIsSubmitting(true);
 
+    try {
+      const response = await fetch("/api/live-attendance", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(submitData),
+      });
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        const message =
+          Array.isArray(result?.errors) && result.errors.length > 0
+            ? result.errors.join("\n")
+            : result?.error || "ライブ出席情報の登録に失敗しました。";
+        setApiError(message);
+        return;
+      }
+
+      setSubmitted(true);
+      setErrors([]);
+    } catch (error) {
+      console.error("Failed to submit live attendance", error);
+      setApiError(
+        error instanceof Error
+          ? error.message
+          : "ライブ出席情報の送信中にエラーが発生しました。"
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
     // ==========================================
@@ -374,6 +418,14 @@ export default function TimetableRequestPage() {
                 <li key={index}>{error}</li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {/* APIエラー表示 */}
+        {apiError && (
+          <div className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3">
+            <h3 className="mb-1 text-sm font-semibold text-red-800">❌ 送信エラー</h3>
+            <p className="text-xs text-red-700 whitespace-pre-line">{apiError}</p>
           </div>
         )}
 
@@ -568,6 +620,13 @@ export default function TimetableRequestPage() {
             </div>
           )}
 
+          {apiError && (
+            <div className="rounded-lg border border-red-300 bg-red-50 p-3">
+              <h3 className="mb-1 text-sm font-semibold text-red-800">❌ 送信エラー</h3>
+              <p className="text-xs text-red-700 whitespace-pre-line">{apiError}</p>
+            </div>
+          )}
+
           {submitted && (
             <div className="rounded-lg border border-green-300 bg-green-50 p-3">
               <h3 className="mb-1 text-sm font-semibold text-green-800">
@@ -581,9 +640,14 @@ export default function TimetableRequestPage() {
 
           <button
             onClick={handleSubmit}
-            className="w-full rounded-lg bg-blue-600 px-6 py-4 text-base font-semibold text-white"
+            disabled={isSubmitting}
+            className={`w-full rounded-lg px-6 py-4 text-base font-semibold text-white ${
+              isSubmitting
+                ? "cursor-not-allowed bg-blue-300"
+                : "bg-blue-600 hover:bg-blue-700"
+            }`}
           >
-            送信
+            {isSubmitting ? "送信中..." : "送信"}
           </button>
         </div>
       </div>
