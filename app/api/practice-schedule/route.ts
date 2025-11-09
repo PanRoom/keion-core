@@ -18,8 +18,15 @@ export async function GET() {
 
     // TEXT型から配列に変換
     if (data && data.available) {
-      data.available = JSON.parse(data.available);
+      try {
+        data.available = JSON.parse(data.available);
+      } catch (e) {
+        console.warn("Failed to parse available:", e);
+        data.available = [];
+      }
     }
+    // result は JSON型カラムなのでパース不要
+    // Supabaseが自動的に配列として返す
 
     return NextResponse.json(data || null);
   } catch (error) {
@@ -72,13 +79,13 @@ export async function POST(request: Request) {
 
     console.log("📝 新規スケジュール挿入中...");
 
-    // 新しいスケジュールを挿入 (TEXT型に変換)
+    // 新しいスケジュールを挿入
     const { data, error } = await supabase
       .from("practice_session")
       .insert({
         start_date,
         available: JSON.stringify(available), // TEXT型なのでJSON文字列化
-        result: "[]", // 空配列をJSON文字列化
+        result: [], // JSON型なので配列をそのまま渡す
         is_finished: false,
       })
       .select()
@@ -133,10 +140,11 @@ export async function PUT(request: Request) {
 
     if (error) throw error;
 
-    // レスポンス用にavailableを配列形式に変換
+    // レスポンス用にavailableを配列形式に変換（TEXT型）
+    // resultはJSON型なのでそのまま
     const responseData = {
       ...data,
-      available: data.available ? JSON.parse(data.available) : null,
+      available: data.available ? JSON.parse(data.available) : [],
     };
 
     return NextResponse.json(responseData);
@@ -168,6 +176,42 @@ export async function DELETE(request: Request) {
       .eq("week_id", weekId);
 
     if (error) throw error;
+
+    // 募集終了後、bands-prefer API を呼び出してスロット割当結果を保存する
+    try {
+      const origin = new URL(request.url).origin;
+      const resp = await fetch(
+        `${origin}/api/bands-prefer?week_id=${encodeURIComponent(weekId)}`
+      );
+
+      if (resp.ok) {
+        const payload = await resp.json();
+        const { nice_prefer } = payload || {};
+
+        console.log("📊 Saving nice_prefer to database:", nice_prefer);
+
+        // practice_session.result カラムに割当結果（nice_preferのみ）を保存する
+        // nice_preferは 3次元配列: [日][時間][場所]
+        // 形式: [[[バンド名 | 0, バンド名 | 0], ...], ...]
+        // ⚠️ JSON型カラムの場合は JSON.stringify() を使わない
+        const { error: saveError } = await supabase
+          .from("practice_session")
+          .update({
+            result: nice_prefer || [], // 直接配列を保存
+          })
+          .eq("week_id", weekId);
+
+        if (saveError) {
+          console.error("Failed to save practice result:", saveError);
+        } else {
+          console.log("Saved practice result for week_id:", weekId);
+        }
+      } else {
+        console.warn("bands-prefer API returned non-OK status:", resp.status);
+      }
+    } catch (err) {
+      console.error("Error while fetching/saving bands-prefer result:", err);
+    }
 
     return NextResponse.json({ success: true, message: "募集を終了しました" });
   } catch (error) {
