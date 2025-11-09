@@ -10,10 +10,14 @@ const DEFAULT_MATRIX = Array(6)
   .fill(0)
   .map(() => Array(12).fill(0));
 
+type RecruitmentState = "loading" | "active" | "inactive";
+
 export default function MemberPracticeRequestPage() {
   const router = useRouter();
-  const { member, isLoading } = useAuth();
+  const { member, isLoading: isAuthLoading } = useAuth();
 
+  const [recruitmentState, setRecruitmentState] =
+    useState<RecruitmentState>("loading");
   const [currentWeek, setCurrentWeek] = useState<{
     week_id: number;
     start_date: string;
@@ -37,15 +41,37 @@ export default function MemberPracticeRequestPage() {
     text: string;
   } | null>(null);
 
-  // 認証チェック
+  // 認証とデータ読み込みを管理するメインのuseEffect
   useEffect(() => {
-    if (!isLoading && !member) {
-      router.push("/login");
+    // 認証が終わるまで何もしない
+    if (isAuthLoading) {
+      return;
     }
-  }, [member, isLoading, router]);
 
-  // 現在の練習週を取得
-  useEffect(() => {
+    // 認証済みでない場合はログインページへ
+    if (!member) {
+      router.push("/login");
+      return;
+    }
+
+    // 1. localStorageから選択時間を読み込み
+    try {
+      const savedData = localStorage.getItem("timeSelectMatrix");
+      if (savedData) {
+        setSelectedMatrix(JSON.parse(savedData));
+      } else {
+        alert("希望時間が選択されていません。選択ページに戻ります。");
+        router.push("/time-select");
+        return;
+      }
+    } catch (error) {
+      console.error("Failed to parse saved matrix:", error);
+      alert("希望時間の読み込みに失敗しました。選択ページに戻ります。");
+      router.push("/time-select");
+      return;
+    }
+
+    // 2. 現在の練習週を取得
     const fetchCurrentWeek = async () => {
       try {
         const response = await fetch("/api/practice-schedule");
@@ -56,26 +82,30 @@ export default function MemberPracticeRequestPage() {
               week_id: data.week_id,
               start_date: data.start_date,
             });
-
-            // available データがあれば選択可能時間として設定
-            if (data.available) {
-              setSelectedMatrix(data.available);
-            }
+            setRecruitmentState("active");
+          } else {
+            setRecruitmentState("inactive");
           }
+        } else if (response.status === 404) {
+          setRecruitmentState("inactive");
+        } else {
+          console.error("練習週取得エラー:", await response.text());
+          setRecruitmentState("inactive");
         }
       } catch (error) {
         console.error("練習週取得エラー:", error);
+        setRecruitmentState("inactive");
       }
     };
 
     fetchCurrentWeek();
-  }, []);
+  }, [isAuthLoading, member, router]);
 
   // 既存の申請データを取得
   useEffect(() => {
-    const fetchExistingRequest = async () => {
-      if (!member || !currentWeek) return;
+    if (!member || !currentWeek) return;
 
+    const fetchExistingRequest = async () => {
       try {
         const response = await fetch(
           `/api/practice-requests?member_id=${member.member_id}&week_id=${currentWeek.week_id}`
@@ -133,6 +163,9 @@ export default function MemberPracticeRequestPage() {
           text: "練習希望を保存しました!",
         });
 
+        // localStorageのデータをクリア
+        localStorage.removeItem("timeSelectMatrix");
+
         // 3秒後にダッシュボードに戻る（役員と部員で分岐）
         setTimeout(() => {
           const redirectPath = member.executive
@@ -158,8 +191,16 @@ export default function MemberPracticeRequestPage() {
     }
   };
 
+  const handleBackToDashboard = () => {
+    if (!member) return;
+    const redirectPath = member.executive
+      ? "/admin/dashboard"
+      : "/member/dashboard";
+    router.push(redirectPath);
+  };
+
   // ローディング中
-  if (isLoading) {
+  if (isAuthLoading || recruitmentState === "loading") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
@@ -175,6 +216,21 @@ export default function MemberPracticeRequestPage() {
     return null;
   }
 
+  // 募集期間外
+  if (recruitmentState === "inactive") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center p-8 bg-card border rounded-lg shadow-sm">
+          <h1 className="text-2xl font-bold mb-4">現在募集中ではありません</h1>
+          <p className="text-muted-foreground mb-6">
+            新しい練習希望の募集が開始されるまで、しばらくお待ちください。
+          </p>
+          <Button onClick={handleBackToDashboard}>ダッシュボードに戻る</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mx-auto max-w-7xl">
@@ -183,21 +239,13 @@ export default function MemberPracticeRequestPage() {
           <div className="flex justify-between items-center mb-4">
             <div>
               <h1 className="text-3xl font-bold tracking-tight">
-                練習希望提出
+                練習希望の優先順位設定
               </h1>
               <p className="text-muted-foreground mt-2">
-                {member.name}さんの練習希望時間を選択してください
+                {member.name}さん、選択した希望時間の優先順位を設定してください。
               </p>
             </div>
-            <Button
-              variant="outline"
-              onClick={() => {
-                const redirectPath = member.executive
-                  ? "/admin/dashboard"
-                  : "/member/dashboard";
-                router.push(redirectPath);
-              }}
-            >
+            <Button variant="outline" onClick={handleBackToDashboard}>
               ダッシュボードに戻る
             </Button>
           </div>
@@ -264,17 +312,16 @@ export default function MemberPracticeRequestPage() {
           <div className="mt-4 p-4 bg-muted rounded-lg">
             <p className="text-sm font-medium mb-2">📝 使い方:</p>
             <ul className="text-sm space-y-1 list-disc list-inside">
-              <li>1列目の丸印は役員が設定した練習可能時間です</li>
               <li>
-                2列目のチェックボックスで希望する優先順位を設定してください
+                1列目の丸印は、前のページで選択した「希望時間」です。
               </li>
               <li>
-                上部のボタンで優先順位レベル（第1〜第4）を切り替えられます
+                希望する時間帯のチェックボックスをクリックして、優先順位（第1〜第4）を設定してください。
               </li>
               <li>
-                「終日」をクリックすると、その曜日の全時間を一括設定できます
+                上部のボタンで優先順位レベルを切り替えて入力できます。
               </li>
-              <li>最後に「練習希望を保存」ボタンを押してください</li>
+              <li>最後に「練習希望を保存」ボタンを押してください。</li>
             </ul>
           </div>
         </div>

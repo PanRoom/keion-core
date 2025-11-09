@@ -3,8 +3,11 @@
 import { useState, useEffect } from "react";
 import { PracticeScheduleAdminTable } from "@/components/practice-schedule-admin-table";
 import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation"; // Import useRouter
 
 export default function PracticeScheduleAdminPage() {
+  const router = useRouter(); // Initialize useRouter
+
   // スケジュールマトリックス
   const [scheduleMatrix, setScheduleMatrix] = useState<number[][]>(
     Array(6)
@@ -46,7 +49,14 @@ export default function PracticeScheduleAdminPage() {
             // 希望提出者数を取得
             await fetchSubmissionCount(data.week_id);
           }
-        } else if (response.status !== 404) {
+        } else if (response.status === 404) {
+          const errorData = await response.json();
+          if (errorData.error === "アクティブな練習スケジュールが見つかりません") {
+            console.info("現在募集中の練習スケジュールはありません。新規作成が可能です。");
+          } else {
+            console.error("スケジュール取得エラー (404):", errorData.error);
+          }
+        } else {
           console.error("スケジュール取得エラー:", await response.text());
         }
       } catch (error) {
@@ -210,6 +220,9 @@ export default function PracticeScheduleAdminPage() {
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mx-auto max-w-7xl">
+        <div className="flex justify-end mb-4"> {/* Added for button placement */}
+          <Button onClick={() => router.push("/")}>ダッシュボードに戻る</Button>
+        </div>
         <div className="mb-6">
           <h1 className="text-3xl font-bold tracking-tight">
             練習スケジュール設定 (役員用)

@@ -6,29 +6,41 @@ export async function GET() {
     const { data, error } = await supabase
       .from("practice_session")
       .select("*")
-      .eq("is_finished", false)
+      .eq("is_finished", false) // アクティブなスケジュールを取得
       .order("start_date", { ascending: false })
       .limit(1)
       .single();
 
-    if (error && error.code !== "PGRST116") {
-      // PGRST116 = No rows found (これは正常なケース)
+    if (error) {
+      // PGRST116: No rows found. これはエラーではなく、アクティブなスケジュールがないという正常な状態。
+      if (error.code === "PGRST116") {
+        return NextResponse.json(
+          { error: "アクティブな練習スケジュールが見つかりません" },
+          { status: 404 }
+        );
+      }
+      // その他のDBエラー
       throw error;
     }
 
+    // データが見つからない場合（理論上 .single() がエラーを投げるはずだが念のため）
+    if (!data) {
+      return NextResponse.json(
+        { error: "アクティブな練習スケジュールが見つかりません" },
+        { status: 404 }
+      );
+    }
+
     // TEXT型から配列に変換
-    if (data && data.available) {
-      try {
-        data.available = JSON.parse(data.available);
-      } catch (e) {
-        console.warn("Failed to parse available:", e);
-        data.available = [];
-      }
+    try {
+      data.available = JSON.parse(data.available);
+    } catch (e) {
+      console.warn("Failed to parse available:", e);
+      data.available = [];
     }
     // result は JSON型カラムなのでパース不要
-    // Supabaseが自動的に配列として返す
 
-    return NextResponse.json(data || null);
+    return NextResponse.json(data);
   } catch (error) {
     console.error("Error fetching practice schedule:", error);
     return NextResponse.json(

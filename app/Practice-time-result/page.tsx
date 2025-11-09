@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import { Button } from "@/components/ui/button"; // Import Button
+import { useRouter } from "next/navigation"; // Import useRouter
 
 // 曜日と対応するラベルの定義
 const DAY_COLUMNS = [
@@ -52,6 +54,7 @@ export default function PracticeTimeResultPage() {
   );
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const router = useRouter(); // Initialize useRouter
 
   useEffect(() => {
     // Supabaseから最新順で週一覧を取得して初期表示を決める。
@@ -62,6 +65,7 @@ export default function PracticeTimeResultPage() {
       const { data, error } = await supabase
         .from("practice_session")
         .select("week_id, start_date, result")
+        .eq("is_finished", true) // 募集終了したスケジュールのみを取得
         .order("start_date", { ascending: false, nullsFirst: false })
         .order("week_id", { ascending: false });
 
@@ -124,6 +128,9 @@ export default function PracticeTimeResultPage() {
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mx-auto max-w-6xl space-y-6">
+        <div className="flex justify-end mb-4"> {/* Added for button placement */}
+          <Button onClick={() => router.push("/")}>ダッシュボードに戻る</Button>
+        </div>
         <header>
           <h1 className="text-3xl font-bold tracking-tight">練習スケジュール一覧</h1>
           <p className="mt-2 text-sm text-muted-foreground">
