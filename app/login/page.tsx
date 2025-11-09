@@ -18,10 +18,31 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const result = await signIn(email, password);
+      console.log("ログイン処理開始");
+
+      // タイムアウト設定（10秒）
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                "ログインがタイムアウトしました。ネットワーク接続を確認してください。"
+              )
+            ),
+          10000
+        )
+      );
+
+      const result = (await Promise.race([
+        signIn(email, password),
+        timeoutPromise,
+      ])) as Awaited<ReturnType<typeof signIn>>;
+
+      console.log("ログイン結果:", result);
 
       if (result.member) {
         // ログイン成功、ホーム画面にリダイレクト
+        console.log("ログイン成功、リダイレクト");
         router.push("/");
         router.refresh();
       } else {
