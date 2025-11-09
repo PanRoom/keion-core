@@ -74,10 +74,13 @@ export default function MemberDashboard() {
             </p>
           </div>
 
-          {/* その他の機能 */}
-          <div className="p-6 bg-card border rounded-lg opacity-50">
+          {/* 練習スケジュール確認 */}
+          <div
+            className="p-6 bg-card border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+            onClick={() => router.push("/Practice-time-result")}
+          >
             <h2 className="text-xl font-semibold mb-2">
-              練習スケジュール確認 (準備中)
+              練習スケジュール確認
             </h2>
             <p className="text-muted-foreground text-sm">
               確定した練習時間を確認します

@@ -73,16 +73,6 @@ export default function AdminDashboard() {
                 ライブの演奏順を決定します
               </p>
             </div>
-
-            {/* その他の機能 */}
-            <div className="p-6 bg-card border rounded-lg opacity-50">
-              <h3 className="text-xl font-semibold mb-2">
-                練習結果確認 (準備中)
-              </h3>
-              <p className="text-muted-foreground text-sm">
-                確定した練習時間を確認します
-              </p>
-            </div>
           </div>
         </div>
 
@@ -124,6 +114,18 @@ export default function AdminDashboard() {
               </h3>
               <p className="text-muted-foreground text-sm">
                 ライブ当日の出席時間を申請します
+              </p>
+            </div>
+            {/* 練習結果確認 */}
+            <div
+              className="p-6 bg-card border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+              onClick={() => router.push("/Practice-time-result")}
+            >
+              <h3 className="text-xl font-semibold mb-2">
+                練習結果確認
+              </h3>
+              <p className="text-muted-foreground text-sm">
+                確定した練習時間を確認します
               </p>
             </div>
           </div>
