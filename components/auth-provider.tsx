@@ -37,18 +37,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // 初回ロード時にユーザー情報を取得
-    getCurrentUser().then((result) => {
-      if (result) {
-        setUser(result.user);
-        setMember(result.member);
+    const loadUser = async () => {
+      try {
+        console.log("AuthProvider: 初回ユーザー情報取得開始");
+
+        // タイムアウト設定（5秒）
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("認証タイムアウト")), 5000)
+        );
+
+        const result = (await Promise.race([
+          getCurrentUser(),
+          timeoutPromise,
+        ])) as Awaited<ReturnType<typeof getCurrentUser>>;
+
+        console.log("AuthProvider: ユーザー情報取得完了", { result });
+
+        if (result) {
+          setUser(result.user);
+          setMember(result.member);
+        }
+      } catch (error) {
+        console.error("AuthProvider: ユーザー情報取得エラー", error);
+        // エラーでもローディングは解除
+      } finally {
+        setIsLoading(false);
+        console.log("AuthProvider: ローディング解除");
       }
-      setIsLoading(false);
-    });
+    };
+
+    loadUser();
 
     // 認証状態の変更を監視
     const {
       data: { subscription },
     } = onAuthStateChange(async (event, session) => {
+      console.log("AuthProvider: 認証状態変更", { event });
+
       if (event === "SIGNED_IN" && session) {
         const result = await getCurrentUser();
         setUser(result?.user || null);

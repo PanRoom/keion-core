@@ -1,10 +1,19 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useAuth } from "@/components/auth-provider";
 
 // ==========================================
 // 型定義
 // ==========================================
+
+type Event = {
+  event_id: string;
+  event_name: string;
+  event_date: string;
+  start_date?: string;
+  end_date?: string;
+};
 
 type TimeSlot = {
   id: string;
@@ -70,24 +79,27 @@ const generateDaysFromEvent = (
 };
 
 // 60分後の時間を計算（21:00を上限）
-const add30Minutes = (hour: string, minute: string): { hour: string; minute: string } => {
+const add30Minutes = (
+  hour: string,
+  minute: string
+): { hour: string; minute: string } => {
   let h = parseInt(hour);
   let m = parseInt(minute);
-  
+
   m += 60;
   if (m >= 60) {
     m -= 60;
     h += 1;
   }
-  
+
   // 21:00を超えないように制限
   if (h > 21 || (h === 21 && m > 0)) {
     return { hour: "21", minute: "00" };
   }
-  
+
   return {
     hour: h.toString().padStart(2, "0"),
-    minute: m.toString().padStart(2, "0")
+    minute: m.toString().padStart(2, "0"),
   };
 };
 
@@ -104,10 +116,12 @@ const validateRequests = (requests: DayRequest[]): string[] => {
     day.timeSlots.forEach((slot, slotIndex) => {
       const start = parseInt(slot.startHour) * 60 + parseInt(slot.startMinute);
       const end = parseInt(slot.endHour) * 60 + parseInt(slot.endMinute);
-      
+
       if (start >= end) {
         errors.push(
-          `${dayLabel}の時間帯${slotIndex + 1}：終了時間は開始時間より後にしてください`
+          `${dayLabel}の時間帯${
+            slotIndex + 1
+          }：終了時間は開始時間より後にしてください`
         );
       }
     });
@@ -117,10 +131,12 @@ const validateRequests = (requests: DayRequest[]): string[] => {
       for (let j = i + 1; j < day.timeSlots.length; j++) {
         const slot1 = day.timeSlots[i];
         const slot2 = day.timeSlots[j];
-        
-        const start1 = parseInt(slot1.startHour) * 60 + parseInt(slot1.startMinute);
+
+        const start1 =
+          parseInt(slot1.startHour) * 60 + parseInt(slot1.startMinute);
         const end1 = parseInt(slot1.endHour) * 60 + parseInt(slot1.endMinute);
-        const start2 = parseInt(slot2.startHour) * 60 + parseInt(slot2.startMinute);
+        const start2 =
+          parseInt(slot2.startHour) * 60 + parseInt(slot2.startMinute);
         const end2 = parseInt(slot2.endHour) * 60 + parseInt(slot2.endMinute);
 
         if (start1 < end2 && start2 < end1) {
@@ -139,47 +155,157 @@ const validateRequests = (requests: DayRequest[]): string[] => {
 // ==========================================
 
 export default function TimetableRequestPage() {
-  const [eventName] = useState("秋の軽音祭 2025（ダミー）");
-  const [memberName] = useState("テストユーザー");
-  const [requests, setRequests] = useState<DayRequest[]>(() => {
-    const dummyEvent = {
-      start_date: "2025-11-08",
-      end_date: "2025-11-10",
-    };
-
-    const days = generateDaysFromEvent(
-      dummyEvent.start_date,
-      dummyEvent.end_date
-    );
-
-    return days.map((day) => ({
-      date: day.date,
-      dayOfWeek: day.dayOfWeek,
-      allDay: false,
-      unavailable: false,
-      timeSlots: [],
-    }));
-  });
+  const { member, isLoading: authLoading } = useAuth();
+  const [event, setEvent] = useState<Event | null>(null);
+  const [eventLoading, setEventLoading] = useState(true);
+  const [requests, setRequests] = useState<DayRequest[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [submitted, setSubmitted] = useState(false);
+
+  // イベント情報を取得
+  useEffect(() => {
+    const fetchEvent = async () => {
+      try {
+        // TODO: 実際のイベントIDに変更する（クエリパラメータやコンテキストから取得）
+        const eventId = "evt_welcome_26";
+
+        const response = await fetch(`/api/events/${eventId}`);
+        if (response.ok) {
+          const eventData = await response.json();
+          console.log("取得したイベントデータ:", eventData);
+          setEvent(eventData);
+
+          // イベントの日程から日付リストを生成
+          if (eventData.start_date && eventData.end_date) {
+            console.log(
+              "日付範囲:",
+              eventData.start_date,
+              "～",
+              eventData.end_date
+            );
+            const days = generateDaysFromEvent(
+              eventData.start_date,
+              eventData.end_date
+            );
+            console.log("生成した日付リスト:", days);
+            setRequests(
+              days.map((day) => ({
+                date: day.date,
+                dayOfWeek: day.dayOfWeek,
+                allDay: false,
+                unavailable: false,
+                timeSlots: [],
+              }))
+            );
+          } else {
+            console.warn(
+              "イベントにstart_dateまたはend_dateがありません:",
+              eventData
+            );
+            // フォールバック: event_dateを使用
+            if (eventData.event_date) {
+              // event_dateが配列の場合は最初の要素を取得
+              const eventDate = Array.isArray(eventData.event_date)
+                ? eventData.event_date[0]
+                : eventData.event_date;
+
+              const days = [
+                {
+                  date: eventDate,
+                  dayOfWeek: getDayOfWeek(eventDate),
+                },
+              ];
+              console.log("event_dateから生成した日付リスト:", days);
+              setRequests(
+                days.map((day) => ({
+                  date: day.date,
+                  dayOfWeek: day.dayOfWeek,
+                  allDay: false,
+                  unavailable: false,
+                  timeSlots: [],
+                }))
+              );
+            }
+          }
+        } else {
+          // イベントが見つからない場合はダミーデータを使用
+          console.warn("イベントが見つかりません。ダミーデータを使用します。");
+          const dummyEvent = {
+            event_id: eventId,
+            event_name: "秋の軽音祭 2025（ダミー）",
+            event_date: "2025-11-08",
+            start_date: "2025-11-08",
+            end_date: "2025-11-10",
+          };
+          setEvent(dummyEvent);
+
+          const days = generateDaysFromEvent(
+            dummyEvent.start_date,
+            dummyEvent.end_date
+          );
+          setRequests(
+            days.map((day) => ({
+              date: day.date,
+              dayOfWeek: day.dayOfWeek,
+              allDay: false,
+              unavailable: false,
+              timeSlots: [],
+            }))
+          );
+        }
+      } catch (error) {
+        console.error("イベント取得エラー:", error);
+        // エラー時もダミーデータを使用
+        const dummyEvent = {
+          event_id: "evt_welcome_26",
+          event_name: "秋の軽音祭 2025（ダミー）",
+          event_date: "2025-11-08",
+          start_date: "2025-11-08",
+          end_date: "2025-11-10",
+        };
+        setEvent(dummyEvent);
+
+        const days = generateDaysFromEvent(
+          dummyEvent.start_date,
+          dummyEvent.end_date
+        );
+        setRequests(
+          days.map((day) => ({
+            date: day.date,
+            dayOfWeek: day.dayOfWeek,
+            allDay: false,
+            unavailable: false,
+            timeSlots: [],
+          }))
+        );
+      } finally {
+        setEventLoading(false);
+      }
+    };
+
+    fetchEvent();
+  }, []);
 
   // ==========================================
   // イベントハンドラー
   // ==========================================
 
-  const handleAllDayChange = useCallback((dayIndex: number, checked: boolean) => {
-    setRequests((prev) => {
-      const newRequests = [...prev];
-      newRequests[dayIndex] = {
-        ...newRequests[dayIndex],
-        allDay: checked,
-        unavailable: false,
-        timeSlots: [],
-      };
-      return newRequests;
-    });
-    setErrors([]);
-  }, []);
+  const handleAllDayChange = useCallback(
+    (dayIndex: number, checked: boolean) => {
+      setRequests((prev) => {
+        const newRequests = [...prev];
+        newRequests[dayIndex] = {
+          ...newRequests[dayIndex],
+          allDay: checked,
+          unavailable: false,
+          timeSlots: [],
+        };
+        return newRequests;
+      });
+      setErrors([]);
+    },
+    []
+  );
 
   const handleUnavailableChange = useCallback(
     (dayIndex: number, checked: boolean) => {
@@ -202,9 +328,12 @@ export default function TimetableRequestPage() {
     setRequests((prev) => {
       const newRequests = [...prev];
 
-  const startHour = START_HOUR_OPTIONS[0];
+      const startHour = START_HOUR_OPTIONS[0];
       const startMinute = MINUTE_OPTIONS[0];
-      const { hour: endHour, minute: endMinute } = add30Minutes(startHour, startMinute);
+      const { hour: endHour, minute: endMinute } = add30Minutes(
+        startHour,
+        startMinute
+      );
 
       const newSlot: TimeSlot = {
         id: `slot-${dayIndex}-${Date.now()}-${Math.random()
@@ -305,7 +434,21 @@ export default function TimetableRequestPage() {
     []
   );
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    // 認証チェック
+    if (!member) {
+      setErrors(["ログインが必要です"]);
+      return;
+    }
+
+    // イベント情報チェック
+    if (!event) {
+      setErrors(["イベント情報の読み込みに失敗しました"]);
+      return;
+    }
+
+    console.log("送信前のrequests:", requests);
+
     const validationErrors = validateRequests(requests);
 
     if (validationErrors.length > 0) {
@@ -313,55 +456,129 @@ export default function TimetableRequestPage() {
       return;
     }
 
-    const timeSlotList: string[] = [];
+    // 二次元配列形式に変換: [["2025-11-08", "09:00", "12:00"], ...]
+    const timeSlots: [string, string, string][] = [];
 
     requests.forEach((day) => {
+      console.log("処理中のday:", day);
+
       if (day.unavailable) {
-        return;
+        return; // 出席不可の日はスキップ
       }
 
       if (day.allDay) {
-        timeSlotList.push(`[${day.date} 09:00~21:00]`);
+        // 終日の場合
+        console.log("終日登録:", [day.date, "09:00", "21:00"]);
+        timeSlots.push([day.date, "09:00", "21:00"]);
       } else {
+        // 個別時間帯の場合
         day.timeSlots.forEach((slot) => {
           const start = `${slot.startHour}:${slot.startMinute}`;
           const end = `${slot.endHour}:${slot.endMinute}`;
-          timeSlotList.push(`[${day.date} ${start}~${end}]`);
+          console.log("時間帯登録:", [day.date, start, end]);
+          timeSlots.push([day.date, start, end]);
         });
       }
     });
 
     const submitData = {
-      event_id: 1,
-      member_id: 999,
-      available_times: timeSlotList,
+      event_id: event.event_id, // 動的に取得したevent_id
+      member_id: member.member_id, // ログインユーザーのmember_id
+      time_slots: timeSlots,
     };
 
     console.log("📤 送信データ:", JSON.stringify(submitData, null, 2));
-    console.log("\n📋 フォーマット済み出力:");
-    timeSlotList.forEach((timeSlot) => {
-      console.log(timeSlot);
-    });
 
-    setSubmitted(true);
-    setErrors([]);
+    try {
+      const response = await fetch("/api/member-availability", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(submitData),
+      });
 
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "送信に失敗しました");
+      }
+
+      const result = await response.json();
+      console.log("✅ 送信成功:", result);
+
+      setSubmitted(true);
+      setErrors([]);
+    } catch (error) {
+      console.error("❌ 送信エラー:", error);
+      setErrors([
+        error instanceof Error
+          ? error.message
+          : "送信に失敗しました。もう一度お試しください。",
+      ]);
+    }
   };
 
-    // ==========================================
-    // レンダリング
-    // ==========================================
+  // ==========================================
+  // レンダリング
+  // ==========================================
 
+  // デバッグログ
+  console.log("TimetableRequest render:", {
+    authLoading,
+    eventLoading,
+    member: member?.name,
+    event: event?.event_name,
+    requestsCount: requests.length,
+  });
+
+  // 認証チェック
+  if (authLoading || eventLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4">
-        <div className="mx-auto max-w-md">
-          <header className="mb-6 rounded-lg bg-white p-4 shadow">
-            <h1 className="text-xl font-bold text-gray-900">
-              ライブ出席確認フォーム
-            </h1>
-            <p className="mt-2 text-sm text-gray-600">イベント：{eventName}</p>
-            <p className="text-sm text-gray-600">メンバー：{memberName}</p>
-          </header>
+      <div className="flex min-h-screen items-center justify-center">
+        <p>読み込み中...</p>
+      </div>
+    );
+  }
+
+  if (!member) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <p className="text-lg font-semibold">ログインが必要です</p>
+          <a href="/login" className="mt-4 text-blue-600 hover:underline">
+            ログインページへ
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  if (!event) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <p className="text-lg font-semibold">
+            イベント情報の読み込みに失敗しました
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-4">
+      <div className="mx-auto max-w-md">
+        <header className="mb-6 rounded-lg bg-white p-4 shadow">
+          <h1 className="text-xl font-bold text-gray-900">
+            ライブ出席確認フォーム
+          </h1>
+          <p className="mt-2 text-sm text-gray-600">
+            イベント：{event.event_name}
+          </p>
+          <p className="text-sm text-gray-600">
+            メンバー：{member.name || "ユーザー"}
+          </p>
+        </header>
 
         {/* エラー表示 */}
         {errors.length > 0 && (
@@ -410,9 +627,7 @@ export default function TimetableRequestPage() {
                   }
                   className="h-5 w-5 rounded border-gray-300 text-blue-600"
                 />
-                <span className="ml-2 text-sm text-gray-700">
-                  終日出席可能
-                </span>
+                <span className="ml-2 text-sm text-gray-700">終日出席可能</span>
               </label>
 
               {/* 出席不可 */}
@@ -522,7 +737,10 @@ export default function TimetableRequestPage() {
                           }
                           className="w-16 rounded border border-gray-300 bg-white px-2 py-1 text-sm"
                         >
-                          {(slot.endHour === "21" ? ["00"] : MINUTE_OPTIONS).map((minute) => (
+                          {(slot.endHour === "21"
+                            ? ["00"]
+                            : MINUTE_OPTIONS
+                          ).map((minute) => (
                             <option key={minute} value={minute}>
                               {minute}
                             </option>
