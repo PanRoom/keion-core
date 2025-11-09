@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { Button } from "@/components/ui/button"; // ← 追加
+// 必要なら： import { Label } from "@/components/ui/label";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,6 +14,8 @@ export default function RequestForm() {
   const [bands, setBands] = useState<any[]>([]);
   const [selectedBand, setSelectedBand] = useState("");
   const [duration, setDuration] = useState("");
+  const [loadingBands, setLoadingBands] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [event, setEvent] = useState<any>(null);
 
   const event_id = "evt_welcome_26";
@@ -30,11 +34,29 @@ export default function RequestForm() {
 
   useEffect(() => {
     async function loadBands() {
-      const { data } = await supabase
-        .from("bands")
-        .select("band_id, band_name")
-        .order("band_id");
-      setBands(data ?? []);
+      setLoadingBands(true);
+      setApiError(null);
+      try {
+        const { data, error } = await supabase
+          .from("bands")
+          .select("band_id, band_name")
+          .order("band_id")
+          .limit(1000);
+
+        if (error) {
+          console.error("bands fetch error:", error);
+          setApiError(error.message || "bands fetch failed");
+          setBands([]);
+        } else {
+          setBands((data ?? []).map((b: any) => ({ ...b, band_id: String(b.band_id) })));
+        }
+      } catch (err: any) {
+        console.error(err);
+        setApiError(err?.message || String(err));
+        setBands([]);
+      } finally {
+        setLoadingBands(false);
+      }
     }
     loadBands();
   }, []);
@@ -42,16 +64,37 @@ export default function RequestForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // ★ エントリーテーブルに記録
-    await supabase.from("entry_table").insert({
-      event_id,
-      band_id: Number(selectedBand),
-      duration: Number(duration),
-    });
+    setApiError(null);
+    if (!selectedBand) {
+      setApiError("バンドを選択してください");
+      return;
+    }
+    if (!duration) {
+      setApiError("出演枠を選択してください");
+      return;
+    }
 
-    alert("✅ 申し込みが送信されました！");
-    setSelectedBand("");
-    setDuration("");
+    try {
+      const payload = {
+        event_id,
+        band_id: Number(selectedBand),
+        duration: Number(duration),
+      };
+      const { data, error } = await supabase.from("entry_table").insert(payload).select();
+
+      if (error) {
+        console.error("insert error:", error);
+        setApiError(error.message || "送信に失敗しました");
+        return;
+      }
+
+      alert("✅ 申し込みが送信されました！");
+      setSelectedBand("");
+      setDuration("");
+    } catch (err: unknown) {
+      console.error(err);
+      setApiError(String(err));
+    }
   };
 
   let formattedDate = "";
@@ -63,19 +106,19 @@ export default function RequestForm() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md bg-white shadow-lg rounded-xl p-6 space-y-6">
-        
-        <h2 className="text-center text-2xl font-bold">
-          🎸 {event?.event_name}
-        </h2>
-        <p className="text-center text-gray-600">{formattedDate}</p>
+      <div className="w-full max-w-md bg-white shadow-sm border rounded-xl p-6 space-y-6">
+
+        <div className="text-center space-y-1">
+          <h2 className="text-xl font-bold">🎸 {event?.event_name}</h2>
+          <p className="text-gray-600">{formattedDate}</p>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
 
-          <div>
-            <label className="block font-semibold mb-1">バンド名</label>
+          <div className="space-y-1">
+            <label className="font-semibold">バンド名</label>
             <select
-              className="w-full border rounded-lg p-3 bg-gray-50 focus:ring-2 focus:ring-blue-500"
+              className="w-full border rounded-md p-2 bg-white"
               value={selectedBand}
               onChange={(e) => setSelectedBand(e.target.value)}
               required
@@ -89,10 +132,10 @@ export default function RequestForm() {
             </select>
           </div>
 
-          <div>
-            <label className="block font-semibold mb-1">出演枠（分）</label>
+          <div className="space-y-1">
+            <label className="font-semibold">出演枠（分）</label>
             <select
-              className="w-full border rounded-lg p-3 bg-gray-50 focus:ring-2 focus:ring-blue-500"
+              className="w-full border rounded-md p-2 bg-white"
               value={duration}
               onChange={(e) => setDuration(e.target.value)}
               required
@@ -106,11 +149,15 @@ export default function RequestForm() {
             </select>
           </div>
 
-          <button
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold shadow-md transition"
-          >
-            提出する
-          </button>
+          {/* エラーメッセージ */}
+          {apiError && (
+            <p className="text-sm text-red-600">{apiError}</p>
+          )}
+
+          {/* ← ここだけ shadcn Button に置き換え */}
+          <Button disabled={loadingBands} className="w-full py-2 text-base font-semibold">
+            {loadingBands ? "読み込み中…" : "提出する"}
+          </Button>
 
         </form>
       </div>
