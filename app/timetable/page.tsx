@@ -77,8 +77,8 @@ export default async function TimetablePage() {
         <tbody>
           {slots?.map((slot: any, index: number) => {
             const duration =
-              (new Date(`2000-01-01T${slot.end_time}`) -
-                new Date(`2000-01-01T${slot.start_time}`)) /
+              (new Date(`2000-01-01T${slot.end_time}`).getTime() -
+                new Date(`2000-01-01T${slot.start_time}`).getTime()) /
               60000;
 
             const isBreak = slot.band_id === null;

@@ -1,6 +1,7 @@
 // ...existing code...
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 // 曜日オプションの定義
 const dayOptions = [
@@ -18,23 +19,48 @@ const timeOptions = Array.from({ length: 12 }, (_, index) => {
   return `${hour.toString().padStart(2, "0")}:00`;
 });
 
-const unavailableMatrix = [
-  [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0],
-  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-];
+const DEFAULT_UNAVAILABLE_MATRIX = Array(6)
+  .fill(0)
+  .map(() => Array(12).fill(1)); // Initially all unavailable
 
 // メインコンポーネント
 export default function TimeSelectPage() {
+  const router = useRouter();
   const [activeDayIndex, setActiveDayIndex] = useState<number | null>(null);
   const [matrix, setMatrix] = useState<number[][]>(() =>
     dayOptions.map(() => Array(timeOptions.length).fill(0))
   );
-  const [output, setOutput] = useState<number[][] | null>(null);
+  const [unavailableMatrix, setUnavailableMatrix] = useState<number[][]>(
+    DEFAULT_UNAVAILABLE_MATRIX
+  );
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSchedule = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch("/api/practice-schedule");
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.available) {
+            // 1が練習不可。そのままunavailableMatrixとして使用
+            setUnavailableMatrix(data.available);
+          }
+        } else {
+          // アクティブなスケジュールがない場合、すべて選択不可にする
+          setUnavailableMatrix(DEFAULT_UNAVAILABLE_MATRIX);
+          alert("現在、希望時間を受け付けている練習スケジュールがありません。");
+          router.push("/"); // ダッシュボードに戻る
+        }
+      } catch (error) {
+        console.error("スケジュール取得エラー:", error);
+        setUnavailableMatrix(DEFAULT_UNAVAILABLE_MATRIX);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchSchedule();
+  }, [router]);
 
   const handleDaySelect = (index: number) => {
     setActiveDayIndex((current) => (current === index ? null : index));
@@ -66,10 +92,23 @@ export default function TimeSelectPage() {
   };
 
   const handleSubmit = () => {
-    setOutput(matrix.map((row) => [...row]));
-    // eslint-disable-next-line no-console
-    console.log("Selected matrix", matrix);
+    try {
+      localStorage.setItem("timeSelectMatrix", JSON.stringify(matrix));
+      router.push("/member/practice-request");
+    } catch (error) {
+      console.error("Failed to save matrix to localStorage:", error);
+      alert("データの保存に失敗しました。");
+    }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+        <p className="text-muted-foreground">読み込み中...</p>
+      </div>
+    );
+  }
 
   return (
     <main
@@ -81,6 +120,7 @@ export default function TimeSelectPage() {
         padding: "2rem",
       }}
     >
+      <h1 className="text-3xl font-bold tracking-tight">練習希望時間を選択</h1>
       <section
         style={{
           display: "flex",
@@ -215,21 +255,6 @@ export default function TimeSelectPage() {
       >
         決定
       </button>
-
-      {output && (
-        <pre
-          style={{
-            width: "min(420px, 100%)",
-            backgroundColor: "#0f172a",
-            color: "#e2e8f0",
-            padding: "1rem",
-            borderRadius: "0.75rem",
-            overflowX: "auto",
-          }}
-        >
-          {JSON.stringify(output, null, 2)}
-        </pre>
-      )}
     </main>
   );
 }

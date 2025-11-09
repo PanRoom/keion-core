@@ -48,37 +48,68 @@ export async function signOut() {
  * 現在のユーザーを取得
  */
 export async function getCurrentUser() {
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+  try {
+    console.log("getCurrentUser: 開始");
 
-  if (error || !user) {
+    // タイムアウト付きでauth.getUserを実行
+    const getUserWithTimeout = Promise.race([
+      supabase.auth.getUser(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("auth.getUser タイムアウト")), 3000)
+      ),
+    ]);
+
+    const {
+      data: { user },
+      error,
+    } = (await getUserWithTimeout) as Awaited<
+      ReturnType<typeof supabase.auth.getUser>
+    >;
+
+    console.log("getCurrentUser: auth.getUser完了", { user: user?.id, error });
+
+    if (error || !user) {
+      console.log("getCurrentUser: ユーザーなし");
+      return null;
+    }
+
+    // 部員情報も取得
+    console.log("getCurrentUser: 部員情報取得開始");
+    const memberData = await getMemberByUserId(user.id);
+    console.log("getCurrentUser: 部員情報取得完了", { memberData });
+
+    return { user, member: memberData };
+  } catch (error) {
+    console.error("getCurrentUser: エラー", error);
     return null;
   }
-
-  // 部員情報も取得
-  const memberData = await getMemberByUserId(user.id);
-
-  return { user, member: memberData };
 }
 
 /**
  * user_idから部員情報を取得
  */
 export async function getMemberByUserId(userId: string) {
-  const { data, error } = await supabase
-    .from("members")
-    .select("*")
-    .eq("user_id", userId)
-    .single();
+  try {
+    console.log("getMemberByUserId: 開始", { userId });
 
-  if (error) {
-    console.error("部員情報取得エラー:", error);
+    const { data, error } = await supabase
+      .from("members")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle(); // single()ではなくmaybeSingle()を使用
+
+    console.log("getMemberByUserId: クエリ完了", { data, error });
+
+    if (error) {
+      console.error("部員情報取得エラー:", error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error("getMemberByUserId: 例外", error);
     return null;
   }
-
-  return data;
 }
 
 /**
